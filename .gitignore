@@ -1,0 +1,5 @@
+# la página se genera en la nube; la copia local no se sube
+index.html
+_site/
+*.log
+__pycache__/

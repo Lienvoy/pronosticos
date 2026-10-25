@@ -1,0 +1,63 @@
+# Corre actualizar_datos.py en la nube y publica index.html en GitHub Pages.
+# Requisito único: en el repositorio, Settings > Pages > Source = "GitHub Actions".
+name: Actualizar tablero
+
+on:
+  schedule:
+    - cron: "15 */2 * * *"     # cada 2 horas (hora UTC); GitHub puede retrasarlo algunos minutos
+  workflow_dispatch:            # botón "Run workflow" para actualizar a mano
+  push:
+    branches: [main]
+
+permissions:
+  contents: write               # para el commit mensual que mantiene vivo el horario
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: America/Mexico_City   # "hoy" y los próximos partidos en hora de México
+      PYTHONIOENCODING: utf-8
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Descargar datos y generar la página
+        run: |
+          mkdir -p _site
+          python -u actualizar_datos.py --salida _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      # GitHub apaga los horarios de repositorios sin actividad en 60 días; un commit al mes lo evita.
+      - name: Mantener activo el horario
+        run: |
+          if [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt 2592000 ]; then
+            date -u +%FT%TZ > .ultima_actividad
+            git config user.name "github-actions[bot]"
+            git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+            git add .ultima_actividad
+            git commit -m "Mantener activo el horario de actualización"
+            git push
+          fi
