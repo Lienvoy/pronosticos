@@ -54,10 +54,18 @@ HTTP = requests.Session()
 HTTP.headers["User-Agent"] = "pronosticos-personal/1.0"
 
 
-def get(url, timeout=30):
-    r = HTTP.get(url, timeout=timeout)
-    r.raise_for_status()
-    return r
+def get(url, timeout=30, intentos=3):
+    """GET con reintentos: football-data.co.uk a veces corta la conexión."""
+    import time
+    for i in range(intentos):
+        try:
+            r = HTTP.get(url, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except requests.RequestException:
+            if i == intentos - 1:
+                raise
+            time.sleep(2 * (i + 1))
 
 
 # ----------------------------------------------------------------------------- fuentes
@@ -308,9 +316,10 @@ def _tau(x, y, l, m, rho):
     return np.maximum(t, 1e-10)
 
 
-def ajusta_dixon_coles(jug, hasta, inicios):
+def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False):
     """Ajusta el modelo con los partidos anteriores a `hasta`, ponderados por antigüedad.
-    Los equipos sin partidos antes del inicio de la temporada en curso (ascendidos) usan un prior más débil."""
+    Los equipos sin partidos antes del inicio de la temporada en curso (ascendidos) usan un prior más débil.
+    Con con_cov=True también devuelve el vector de parámetros y su covarianza aproximada (para Montecarlo)."""
     d = jug[jug["fecha"] < hasta]
     ini = max([s for s in inicios if s < hasta], default=d["fecha"].min())
     equipos_nuevos = set(d["local"]) - set(d[d["fecha"] < ini]["local"])
@@ -340,9 +349,41 @@ def ajusta_dixon_coles(jug, hasta, inicios):
     bounds = [(None, None), (-1, 1), (-0.3, 0.3)] + [(-3, 3)] * (2 * n)
     r = minimize(nll, p0, method="L-BFGS-B", bounds=bounds)
     p = r.x
-    return {"mu": float(p[0]), "home": float(p[1]), "rho": float(p[2]),
-            "ataque": {e: float(p[3 + i]) for i, e in enumerate(equipos)},
-            "defensa": {e: float(p[3 + n + i]) for i, e in enumerate(equipos)}}
+    out = {"mu": float(p[0]), "home": float(p[1]), "rho": float(p[2]),
+           "ataque": {e: float(p[3 + i]) for i, e in enumerate(equipos)},
+           "defensa": {e: float(p[3 + n + i]) for i, e in enumerate(equipos)}}
+    if con_cov:
+        out.update(theta=p.copy(), cov=_covarianza(p, nll, hi, ai, w, n), orden=equipos)
+        se = np.sqrt(np.diag(out["cov"]))
+        out["se"] = {e: (float(se[3 + i]), float(se[3 + n + i])) for i, e in enumerate(equipos)}
+    return out
+
+
+def _covarianza(p, nll, hi, ai, w, n):
+    """Inversa del Hessiano de la log-verosimilitud penalizada (aproximación de Laplace).
+    Para la parte Poisson con enlace log, el Hessiano es exacto y cerrado: Σ w·λ·x·x' (x = fila de diseño) + ridge.
+    El término de Dixon-Coles solo toca a rho, cuya segunda derivada se calcula numéricamente aparte."""
+    P = 3 + 2 * n
+    k = len(hi)
+    a, df_ = p[3:3 + n], p[3 + n:]
+    l = np.exp(p[0] + p[1] + a[hi] + df_[ai])
+    m = np.exp(p[0] + a[ai] + df_[hi])
+    Xl = np.zeros((k, P)); Xm = np.zeros((k, P))
+    filas = np.arange(k)
+    Xl[:, 0] = 1; Xl[:, 1] = 1; Xl[filas, 3 + hi] = 1; Xl[filas, 3 + n + ai] = 1
+    Xm[:, 0] = 1; Xm[filas, 3 + ai] = 1; Xm[filas, 3 + n + hi] = 1
+    H = (Xl * (w * l)[:, None]).T @ Xl + (Xm * (w * m)[:, None]).T @ Xm
+    H[np.arange(3, P), np.arange(3, P)] += 2 * RIDGE
+    eps = 1e-3
+    pr = [p.copy() for _ in range(3)]
+    pr[0][2] -= eps; pr[2][2] += eps
+    h_rho = (nll(pr[0]) - 2 * nll(pr[1]) + nll(pr[2])) / eps ** 2
+    H[2, 2] = max(h_rho, 1.0)
+    try:
+        np.linalg.cholesky(H)
+    except np.linalg.LinAlgError:
+        H += np.eye(P) * 1e-6 * np.trace(H) / P
+    return np.linalg.inv(H)
 
 
 def lambdas(mod, local, visita):
@@ -433,6 +474,163 @@ def metricas(preds, hist):
     return out
 
 
+# ----------------------------------------------------------------------------- simulación Montecarlo
+# Ver METODOLOGIA_SIMULACIONES.md. Semilla fija: con los mismos datos se obtienen los mismos números.
+S_PARAM = 2000            # juegos de parámetros muestreados de la normal (θ, Σ)
+SIMS_POR_JUEGO = 10       # partidos simulados por juego de parámetros -> 20,000 por partido
+S_TEMP = 1000             # juegos de parámetros usados en la simulación de temporada
+TEMP_POR_JUEGO = 10       # temporadas por juego de parámetros -> 10,000 temporadas
+SEMILLA = 20261025
+ZONAS = {   # clave: (etiqueta del 1º, plazas de arriba, etiqueta, plazas de descenso, ida y vuelta)
+    "premier": ("Campeón", 4, "Top 4", 3, True), "laliga": ("Campeón", 4, "Top 4", 3, True),
+    "seriea": ("Campeón", 4, "Top 4", 3, True), "ligue1": ("Campeón", 4, "Top 4", 2, True),
+    "eredivisie": ("Campeón", 4, "Top 4", 2, True), "ligamx": ("Superlíder", 6, "Liguilla directa (top 6)", 0, False),
+}
+
+
+def _rng(clave, extra=""):
+    return np.random.default_rng([SEMILLA, *map(ord, clave + extra)])
+
+
+def muestrea_parametros(mod, rng):
+    """S_PARAM vectores θ_s ~ Normal(θ̂, Σ̂), respetando los límites del ajuste."""
+    L = np.linalg.cholesky(mod["cov"])
+    th = mod["theta"][None, :] + rng.standard_normal((S_PARAM, len(mod["theta"]))) @ L.T
+    th[:, 1] = th[:, 1].clip(-1, 1)
+    th[:, 2] = th[:, 2].clip(-0.3, 0.3)
+    th[:, 3:] = th[:, 3:].clip(-3, 3)
+    return th
+
+
+def _lambdas_s(mod, th, local, visita):
+    """λ local y λ visita para cada juego de parámetros (vectores de largo S)."""
+    idx, n = {e: i for i, e in enumerate(mod["orden"])}, len(mod["orden"])
+    pa, pd_ = PRIOR_ASCENDIDO
+    al = th[:, 3 + idx[local]] if local in idx else pa
+    dl = th[:, 3 + n + idx[local]] if local in idx else pd_
+    av = th[:, 3 + idx[visita]] if visita in idx else pa
+    dv = th[:, 3 + n + idx[visita]] if visita in idx else pd_
+    return np.exp(th[:, 0] + th[:, 1] + al + dv), np.exp(th[:, 0] + av + dl), th[:, 2]
+
+
+def _matrices_dc(l, m, rho):
+    """Matriz de marcadores Dixon-Coles para cada juego de parámetros: forma (S, 11, 11)."""
+    g = np.arange(MAX_GOLES + 1)
+    fact = np.cumprod(np.r_[1, g[1:]]).astype(float)
+    pl = np.exp(-l)[:, None] * l[:, None] ** g / fact          # Poisson directo: mucho más rápido que scipy aquí
+    pm = np.exp(-m)[:, None] * m[:, None] ** g / fact
+    M = pl[:, :, None] * pm[:, None, :]
+    M[:, 0, 0] *= 1 - l * m * rho
+    M[:, 0, 1] *= 1 + l * rho
+    M[:, 1, 0] *= 1 + m * rho
+    M[:, 1, 1] *= 1 - rho
+    np.maximum(M, 0, out=M)
+    M /= M.sum((1, 2), keepdims=True)
+    return M
+
+
+def _muestrea_marcadores(M, k, rng):
+    """k marcadores por juego de parámetros, por transformada inversa sobre la matriz aplanada."""
+    S, C = len(M), (MAX_GOLES + 1) ** 2
+    cum = M.reshape(S, -1).cumsum(1)
+    cum /= cum[:, -1:]
+    fila = np.arange(S)[:, None]
+    # una sola búsqueda binaria para todas las filas: a la fila s se le suma s para que queden ordenadas
+    idx = np.searchsorted((cum + fila).ravel(), (rng.random((S, k)) + fila).ravel(), side="right")
+    idx = np.minimum(idx.reshape(S, k) - fila * C, C - 1)
+    return idx // (MAX_GOLES + 1), idx % (MAX_GOLES + 1)
+
+
+def simula_partido(mod, th, local, visita, rng):
+    l, m, rho = _lambdas_s(mod, th, local, visita)
+    M = _matrices_dc(l, m, rho)
+    gl, gv = _muestrea_marcadores(M, SIMS_POR_JUEGO, rng)          # (S, 10)
+    N = gl.size
+    res = {"1": gl > gv, "X": gl == gv, "2": gl < gv}
+    # error estándar Montecarlo agrupado por juego de parámetros (las 10 simulaciones de un juego no son independientes)
+    ee = {k: float(v.mean(1).std(ddof=1) / math.sqrt(len(v))) for k, v in res.items()}
+    tri = np.tril(np.ones((MAX_GOLES + 1,) * 2, bool), -1)
+    p_s = {"1": M[:, tri].sum(1), "X": np.trace(M, axis1=1, axis2=2), "2": M[:, tri.T].sum(1)}
+    p1, px, p2, _ = prob_1x2(mod, local, visita)
+    tot = (gl + gv).ravel()
+    marc, cuenta = np.unique(np.stack([gl.ravel(), gv.ravel()], 1), axis=0, return_counts=True)
+    top = np.argsort(-cuenta)[:10]
+    hist = np.bincount(np.minimum(tot, 7), minlength=8) / N
+    return {"n": int(N), "juegos": len(th),
+            "p": [round(float(res[k].mean()), 4) for k in "1X2"],
+            "ee": [round(ee[k], 4) for k in "1X2"],
+            "int90": [[round(float(np.percentile(p_s[k], 5)), 4), round(float(np.percentile(p_s[k], 95)), 4)] for k in "1X2"],
+            "analitica": [round(p1, 4), round(px, 4), round(p2, 4)],
+            "marcadores": [[int(marc[i, 0]), int(marc[i, 1]), round(float(cuenta[i] / N), 4)] for i in top],
+            "goles": [round(float(gl.mean()), 2), round(float(gv.mean()), 2)],
+            "total_p5_p95": [int(np.percentile(tot, 5)), int(np.percentile(tot, 95))],
+            "hist_total": [round(float(x), 4) for x in hist],
+            "over25": round(float((tot > 2).mean()), 4),
+            "ambos": round(float(((gl > 0) & (gv > 0)).mean()), 4)}
+
+
+def simula_temporada(clave, mod, th, act, fut, rng):
+    """10,000 temporadas: se juega el calendario restante y se suman a la tabla actual."""
+    etiqueta1, n_arriba, etiqueta_arriba, n_desc, ida_vuelta = ZONAS[clave]
+    equipos = sorted(set(act["local"]) | set(act["visita"]))
+    ix = {e: i for i, e in enumerate(equipos)}
+    th = th[:S_TEMP]
+    E, T = len(equipos), S_TEMP * TEMP_POR_JUEGO
+    pts0, gd0, gf0 = np.zeros(E), np.zeros(E), np.zeros(E)
+    for r in act.itertuples():
+        i, j = ix[r.local], ix[r.visita]
+        gf0[i] += r.gl; gf0[j] += r.gv; gd0[i] += r.gl - r.gv; gd0[j] += r.gv - r.gl
+        pts0[i] += 3 if r.gl > r.gv else 1 if r.gl == r.gv else 0
+        pts0[j] += 3 if r.gv > r.gl else 1 if r.gl == r.gv else 0
+    jugados = set(zip(act["local"], act["visita"]))
+    if ida_vuelta:
+        pendientes = [(a, b, True) for a in equipos for b in equipos if a != b and (a, b) not in jugados]
+    else:   # Liga MX: una vuelta; la localía sale del calendario conocido o, si no, a la suerte
+        conocidos = {frozenset((r.local, r.visita)): (r.local, r.visita) for r in fut.itertuples()} if len(fut) else {}
+        pendientes = []
+        for x in range(E):
+            for y in range(x + 1, E):
+                a, b = equipos[x], equipos[y]
+                if (a, b) in jugados or (b, a) in jugados:
+                    continue
+                par = conocidos.get(frozenset((a, b)))
+                pendientes.append((*par, True) if par else (a, b, False))
+    pts = np.repeat(pts0[None, :], T, 0); gd = np.repeat(gd0[None, :], T, 0); gf = np.repeat(gf0[None, :], T, 0)
+    filas = np.arange(T)
+    for a, b, fijo in pendientes:
+        gl, gv = (x.ravel() for x in _muestrea_marcadores(_matrices_dc(*_lambdas_s(mod, th, a, b)), TEMP_POR_JUEGO, rng))
+        loc = np.full(T, ix[a]); vis = np.full(T, ix[b])
+        if not fijo:
+            gl2, gv2 = (x.ravel() for x in _muestrea_marcadores(_matrices_dc(*_lambdas_s(mod, th, b, a)), TEMP_POR_JUEGO, rng))
+            voltea = rng.random(T) < 0.5
+            loc, vis = np.where(voltea, ix[b], loc), np.where(voltea, ix[a], vis)
+            gl, gv = np.where(voltea, gl2, gl), np.where(voltea, gv2, gv)
+        # local y visita son columnas distintas en cada fila, así que la suma con índices no tiene choques
+        pts[filas, loc] += np.where(gl > gv, 3, np.where(gl == gv, 1, 0))
+        pts[filas, vis] += np.where(gv > gl, 3, np.where(gl == gv, 1, 0))
+        gd[filas, loc] += gl - gv; gd[filas, vis] += gv - gl
+        gf[filas, loc] += gl; gf[filas, vis] += gv
+    # desempate: puntos, diferencia de goles, goles a favor y sorteo
+    clave_orden = pts * 1e6 + (gd + 1000) * 1e2 + gf + rng.random((T, E)) * 0.1
+    pos = np.empty((T, E), int)
+    pos[filas[:, None], np.argsort(-clave_orden, 1)] = np.arange(1, E + 1)
+    pj0 = np.bincount([ix[e] for e in act["local"]] + [ix[e] for e in act["visita"]], minlength=E)
+    tabla = []
+    for e in equipos:
+        i = ix[e]
+        tabla.append({"equipo": e, "pts": int(pts0[i]), "pj": int(pj0[i]),
+                      "pts_esp": round(float(pts[:, i].mean()), 1),
+                      "pts_p5_p95": [int(np.percentile(pts[:, i], 5)), int(np.percentile(pts[:, i], 95))],
+                      "p1": round(float((pos[:, i] == 1).mean()), 4),
+                      "parriba": round(float((pos[:, i] <= n_arriba).mean()), 4),
+                      "pdesc": round(float((pos[:, i] > E - n_desc).mean()), 4) if n_desc else None,
+                      "pos_media": round(float(pos[:, i].mean()), 1),
+                      "pos_dist": [round(float(x), 4) for x in np.bincount(pos[:, i] - 1, minlength=E) / T]})
+    tabla.sort(key=lambda r: -r["pts_esp"])
+    return {"temporadas": T, "pendientes": len(pendientes), "etiqueta1": etiqueta1,
+            "etiqueta_arriba": etiqueta_arriba, "n_desc": n_desc, "tabla": tabla}
+
+
 # ----------------------------------------------------------------------------- estadísticas
 def estadisticas(jug, inicio_temp):
     act = jug[jug["fecha"] >= inicio_temp].sort_values("fecha")
@@ -514,11 +712,23 @@ def procesa_liga(clave, fuente):
     act = jug[jug["fecha"] >= inicio]
 
     print(f"  {nombre}: {len(jug)} partidos ({origen}), temporada desde {inicio}, último {ultimo}")
-    mod = ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios)
+    mod = ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, con_cov=True)
     preds, met = backtest(jug, inicios)
 
     proximos = fut[fut["fecha"] >= hoy].sort_values("fecha").head(40)
-    recientes = act.sort_values("fecha", ascending=False).head(60)
+    t0 = datetime.now()
+    th = muestrea_parametros(mod, _rng(clave))
+    sims = [simula_partido(mod, th, r.local, r.visita, _rng(clave, f"{r.fecha}{r.local}{r.visita}"))
+            for r in proximos.itertuples()]
+    try:
+        temporada = simula_temporada(clave, mod, th, act, fut, _rng(clave, "temporada"))
+    except Exception as e:  # noqa: BLE001
+        print("  simulación de temporada falló:", e)
+        temporada = None
+    print(f"  Montecarlo: {len(sims)} partidos × {S_PARAM * SIMS_POR_JUEGO:,} simulaciones"
+          + (f", {temporada['temporadas']:,} temporadas ({temporada['pendientes']} partidos pendientes)" if temporada else "")
+          + f" en {(datetime.now() - t0).total_seconds():.1f} s")
+    recientes = act.sort_values("fecha", ascending=False)      # toda la temporada, para filtrar por equipo
     predmap = {(p["fecha"], p["local"]): p for p in preds}
     cols = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25"]
     def filas(df):
@@ -532,11 +742,17 @@ def procesa_liga(clave, fuente):
             out.append(r)
         return out
 
+    prox_filas = filas(proximos)
+    for r, s in zip(prox_filas, sims):
+        r["sim"] = s
     return {"nombre": nombre, "origen": origen, "actualizado": ultimo.isoformat(), "inicio": inicio.isoformat(),
+            "temporada_sim": temporada,
             "modelo": {"mu": mod["mu"], "home": mod["home"], "rho": mod["rho"],
                        "equipos": {e: [round(mod["ataque"][e], 4), round(mod["defensa"][e], 4)] for e in mod["ataque"]
-                                   if e in set(act["local"]) | set(act["visita"])}},
-            "tabla": estadisticas(jug, inicio), "proximos": filas(proximos), "recientes": filas(recientes),
+                                   if e in set(act["local"]) | set(act["visita"])},
+                "se": {e: [round(v[0], 4), round(v[1], 4)] for e, v in mod["se"].items()
+                       if e in set(act["local"]) | set(act["visita"])}},
+            "tabla": estadisticas(jug, inicio), "proximos": prox_filas, "recientes": filas(recientes),
             "backtest": met}
 
 

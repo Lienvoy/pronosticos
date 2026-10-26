@@ -106,6 +106,12 @@ th[aria-sort] { color: var(--ink) }
 .news .n { display: grid; gap: 2px; max-width: 80ch }
 .btn { font: 600 14px var(--f-display); letter-spacing: .05em; text-transform: uppercase; background: none; border: 1px solid var(--line); color: var(--ink); padding: 6px 14px; border-radius: 4px; cursor: pointer; justify-self: start }
 .fx .out { font-size: 12px; color: var(--red) }
+.simbtn { margin-top: 4px; padding: 3px 10px; font-size: 13px }
+.simbtn[aria-expanded="true"] { background: var(--turf); border-color: var(--turf); color: var(--bg) }
+.simbox { display: grid; gap: 12px; padding: 12px; margin: 0 0 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px }
+.simbox[hidden] { display: none }
+details summary { cursor: pointer; color: var(--ink); font-weight: 600 }
+details p { max-width: 90ch }
 footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 @media (max-width: 640px) {
   h1 { font-size: 27px }
@@ -213,7 +219,7 @@ function render() {
   chips();
   const v = $("#vista"), copa = liga === "ucl" || liga === "uel", L = D.ligas[liga];
   const nombre = ORDEN.find(o => o[0] === liga)[1];
-  const tabs = copa ? [["calc", "Calculadora"]] : [["proximos", "Próximos"], ["calc", "Calculadora"], ["tabla", "Tabla y estadísticas"], ["resultados", "Resultados"], ["fiab", "Fiabilidad"]];
+  const tabs = copa ? [["calc", "Calculadora"]] : [["proximos", "Próximos"], ["calc", "Calculadora"], ["tabla", "Tabla y estadísticas"], ["temporada", "Simulación de temporada"], ["resultados", "Resultados"], ["fiab", "Fiabilidad"]];
   tabs.push(["jugadores", "Jugadores"]);
   if (!tabs.some(t => t[0] === vistaTab)) vistaTab = tabs[0][0];
   let meta = "";
@@ -230,7 +236,7 @@ function render() {
   if (vistaTab === "jugadores") return jugadoresVista(cuerpo, nombre);
   if (copa) return D.elo ? copaCalc(cuerpo) : cuerpo.innerHTML = vacio(nombre);
   if (!L) return cuerpo.innerHTML = vacio(nombre);
-  ({ proximos, calc, tabla, resultados, fiab })[vistaTab](cuerpo, L);
+  ({ proximos, calc, tabla, temporada, resultados, fiab })[vistaTab](cuerpo, L);
 }
 
 function vacio(nombre) {
@@ -250,7 +256,8 @@ function filaPartido(r, lm, opts = {}) {
     <div class="when">${r.fecha.slice(5).split("-").reverse().join("/")}${opts.extra || ""}</div>
     <div class="teams"><b>${esc(r.local)}</b><b>${esc(r.visita)}</b>
       <span class="xg">goles esperados ${lm[0].toFixed(2)} – ${lm[1].toFixed(2)} · más de 2.5 ${pct(k.o25)} · ambos anotan ${pct(k.btts)}</span>
-      ${[r.local, r.visita].map(e => { const b = bajasEquipo(e); return b.length ? `<span class="out">Bajas ${esc(e)}: ${b.slice(0, 5).map(j => esc(j.nombre) + (j.lesion.estado === "Duda" ? " (duda)" : "")).join(", ")}${b.length > 5 ? ` y ${b.length - 5} más` : ""}</span>` : "" }).join("")}</div>
+      ${[r.local, r.visita].map(e => { const b = bajasEquipo(e); return b.length ? `<span class="out">Bajas ${esc(e)}: ${b.slice(0, 5).map(j => esc(j.nombre) + (j.lesion.estado === "Duda" ? " (duda)" : "")).join(", ")}${b.length > 5 ? ` y ${b.length - 5} más` : ""}</span>` : "" }).join("")}
+      ${r.sim ? `<button class="btn simbtn" data-sb="sb-${id}" aria-expanded="false" aria-controls="sb-${id}">Simulación</button>` : ""}</div>
     <div><div class="bar"><div class="b1" style="width:${100 * k.h}%">${pct(k.h)}</div><div class="bx" style="width:${100 * k.d}%">${pct(k.d)}</div><div class="b2" style="width:${100 * k.a}%">${pct(k.a)}</div></div>
       <div class="odds">${["1", "X", "2"].map((n, i) => `<input id="o-${id}-${i}" aria-label="Cuota ${n}" placeholder="${n} · ${f2(1 / ps[i])}" value="${(guard && guard[i]) || (c[i] ?? "")}" data-p="${ps[i]}">`).join("")}
       ${ps.map((p, i) => `<div class="ev" id="e-${id}-${i}"></div>`).join("")}</div></div></div>`;
@@ -272,7 +279,13 @@ function proximos(el, L) {
   if (!L.proximos.length) { el.innerHTML = `<div class="panel empty"><p>No hay partidos próximos en la fuente. Usa la calculadora para cualquier cruce.</p></div>`; return }
   el.innerHTML = `<div class="panel">
     <p class="small" style="margin:0 0 6px">Escribe la cuota de tu casa en cada casilla. El gris dentro de la casilla es la cuota justa del modelo; un porcentaje ámbar indica valor esperado por encima de tu mínimo y el monto sugerido.</p>
-    ${L.proximos.map((r, i) => filaPartido(r, lambdasLiga(L, r.local, r.visita), { id: liga + "-" + r.fecha + "-" + i })).join("")}</div>`;
+    ${L.proximos.map((r, i) => { const id = liga + "-" + r.fecha + "-" + i;
+      return filaPartido(r, lambdasLiga(L, r.local, r.visita), { id }) + (r.sim ? `<div class="simbox" id="sb-${id}" hidden></div>` : "") }).join("")}</div>`;
+  el.querySelectorAll(".simbtn").forEach(b => b.onclick = () => {
+    const box = document.getElementById(b.dataset.sb), r = L.proximos[+b.dataset.sb.split("-").pop()];
+    if (!box.innerHTML) box.innerHTML = simHtml(r.sim, r.local, r.visita);
+    box.hidden = !box.hidden; b.setAttribute("aria-expanded", String(!box.hidden));
+  });
   conectarCuotas(el);
 }
 
@@ -333,12 +346,80 @@ function tabla(el, L) {
 }
 
 function resultados(el, L) {
-  el.innerHTML = `<div class="panel scroll"><table><thead><tr><th>Fecha</th><th class="n">Local</th><th style="text-align:center">Marcador</th><th>Visita</th><th class="n">Medio tiempo</th><th>Lo que esperaba el modelo</th><th class="n">Prob. del resultado</th></tr></thead><tbody>
-    ${L.recientes.map(r => { const res = r.gl > r.gv ? 0 : r.gl === r.gv ? 1 : 2, p = r.p_prev;
-      const bar = p ? `<div class="bar" style="height:14px;line-height:14px;width:160px;font-size:0">${p.map((x, i) => `<div class="${["b1","bx","b2"][i]}" style="width:${100 * x}%;opacity:${i === res ? 1 : .35}"></div>`).join("")}</div>` : '<span class="small">sin pronóstico previo</span>';
-      return `<tr><td class="mono">${r.fecha}</td><td class="n">${esc(r.local)}</td><td class="mono" style="text-align:center"><b>${r.gl} – ${r.gv}</b></td><td>${esc(r.visita)}</td>
-        <td class="n mono">${r.gl_mt != null ? r.gl_mt + "–" + r.gv_mt : "–"}</td><td>${bar}</td><td class="n">${p ? pct(p[res]) : "–"}</td></tr>` }).join("")}
-    </tbody></table><p class="small">La barra muestra el pronóstico hecho antes del partido, sin conocer el resultado; el segmento resaltado es lo que pasó.</p></div>`;
+  const equipos = L.tabla.map(r => r.equipo).sort((a, b) => a.localeCompare(b, "es"));
+  let eq = store.get("res." + liga, "");
+  if (!equipos.includes(eq)) eq = "";
+  el.innerHTML = `<div class="panel" style="display:grid;gap:14px">
+    <div class="calc-top"><label for="fr" style="flex:0 1 320px">Equipo<select id="fr"><option value="">Todos (${L.recientes.length} partidos)</option>
+      ${equipos.map(e => `<option ${e === eq ? "selected" : ""}>${esc(e)}</option>`).join("")}</select></label></div>
+    <div id="rres" style="display:grid;gap:14px"></div></div>`;
+  const pinta = () => {
+    const filas = eq ? L.recientes.filter(r => r.local === eq || r.visita === eq) : L.recientes;
+    const suyo = r => { const loc = r.local === eq, a = loc ? r.gl : r.gv, b = loc ? r.gv : r.gl; return [a, b, a > b ? "G" : a === b ? "E" : "P"] };
+    let resumen = "";
+    if (eq) {
+      const s = { G: 0, E: 0, P: 0, gf: 0, gc: 0 };
+      filas.forEach(r => { const [a, b, c] = suyo(r); s[c]++; s.gf += a; s.gc += b });
+      resumen = `<div class="big"><div><span class="k">PJ</span><span class="v">${filas.length}</span></div><div><span class="k">G-E-P</span><span class="v">${s.G}-${s.E}-${s.P}</span></div>
+        <div><span class="k">GF-GC</span><span class="v">${s.gf}-${s.gc}</span></div><div><span class="k">Puntos</span><span class="v">${3 * s.G + s.E}</span></div>
+        <div><span class="k">Forma (5)</span><span class="v form" style="font-size:16px">${filas.slice(0, 5).reverse().map(r => { const c = suyo(r)[2]; return `<span class="${c}">${c}</span>` }).join("")}</span></div></div>`;
+    }
+    $("#rres").innerHTML = `${resumen}<div class="scroll"><table><thead><tr><th>Fecha</th><th class="n">Local</th><th style="text-align:center">Marcador</th><th>Visita</th>${eq ? "<th>Res.</th>" : ""}<th class="n">Medio tiempo</th><th>Lo que esperaba el modelo</th><th class="n">Prob. del resultado</th></tr></thead><tbody>
+      ${filas.map(r => { const res = r.gl > r.gv ? 0 : r.gl === r.gv ? 1 : 2, p = r.p_prev;
+        const bar = p ? `<div class="bar" style="height:14px;line-height:14px;width:160px;font-size:0">${p.map((x, i) => `<div class="${["b1","bx","b2"][i]}" style="width:${100 * x}%;opacity:${i === res ? 1 : .35}"></div>`).join("")}</div>` : '<span class="small">sin pronóstico previo</span>';
+        const b = n => n === eq ? `<b>${esc(n)}</b>` : esc(n);
+        return `<tr><td class="mono">${r.fecha}</td><td class="n">${b(r.local)}</td><td class="mono" style="text-align:center"><b>${r.gl} – ${r.gv}</b></td><td>${b(r.visita)}</td>
+          ${eq ? `<td class="form"><span class="${suyo(r)[2]}">${suyo(r)[2]}</span></td>` : ""}
+          <td class="n mono">${r.gl_mt != null ? r.gl_mt + "–" + r.gv_mt : "–"}</td><td>${bar}</td><td class="n">${p ? pct(p[res]) : "–"}</td></tr>` }).join("")}
+        ${filas.length ? "" : `<tr><td colspan="8" class="small">Sin partidos de este equipo en la temporada.</td></tr>`}
+      </tbody></table></div><p class="small" style="margin:0">Toda la temporada en curso. La barra muestra el pronóstico hecho antes del partido, sin conocer el resultado; el segmento resaltado es lo que pasó.${eq ? " G/E/P desde el punto de vista de " + esc(eq) + "." : ""}</p>`;
+  };
+  $("#fr").onchange = e => { eq = e.target.value; store.set("res." + liga, eq); pinta() };
+  pinta();
+}
+
+// ---------- simulación Montecarlo (calculada en actualizar_datos.py)
+function histTotal(h) {
+  const W = 300, H = 110, bw = W / h.length, mx = Math.max(...h);
+  return `<svg viewBox="0 0 ${W} ${H + 18}" width="100%" style="max-width:360px" role="img" aria-label="Distribución de goles totales">
+    ${h.map((p, i) => { const y = H - (H - 14) * p / mx;
+      return `<rect x="${i * bw + 3}" y="${y}" width="${bw - 6}" height="${H - y}" rx="2" fill="var(--turf)" fill-opacity=".85"><title>${i}${i === h.length - 1 ? " o más" : ""} goles: ${pct(p, 1)}</title></rect>
+      <text x="${i * bw + bw / 2}" y="${y - 3}" text-anchor="middle">${Math.round(100 * p)}</text>
+      <text x="${i * bw + bw / 2}" y="${H + 14}" text-anchor="middle">${i}${i === h.length - 1 ? "+" : ""}</text>` }).join("")}</svg>`;
+}
+function simHtml(s, nl, nv) {
+  const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`];
+  return `<div class="grid2">
+    <div style="display:grid;gap:10px;align-content:start">
+      <div class="bar">${s.p.map((p, i) => `<div class="${["b1", "bx", "b2"][i]}" style="width:${100 * p}%">${pct(p)}</div>`).join("")}</div>
+      <div class="scroll"><table><thead><tr><th>Resultado</th><th class="n">Montecarlo</th><th class="n" title="Error de muestreo, 95%">± error</th><th class="n" title="Percentiles 5 y 95 entre los juegos de parámetros">Rango 90%</th><th class="n" title="Fórmula Dixon-Coles con los parámetros estimados, sin simular">Fórmula</th><th class="n">Cuota justa</th></tr></thead><tbody>
+        ${nombres.map((n, i) => `<tr><td>${esc(n)}</td><td class="n"><b>${pct(s.p[i], 1)}</b></td><td class="n">${(196 * s.ee[i]).toFixed(1)}</td><td class="n">${pct(s.int90[i][0])}–${pct(s.int90[i][1])}</td><td class="n">${pct(s.analitica[i], 1)}</td><td class="n">${f2(1 / s.p[i])}</td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="meta"><span>Goles simulados ${s.goles[0].toFixed(2)} – ${s.goles[1].toFixed(2)}</span><span>Total de goles (90%): ${s.total_p5_p95[0]} a ${s.total_p5_p95[1]}</span><span>Más de 2.5: ${pct(s.over25)}</span><span>Ambos anotan: ${pct(s.ambos)}</span></div>
+      <h3>Goles totales</h3>${histTotal(s.hist_total)}
+    </div>
+    <div style="display:grid;gap:8px;align-content:start"><h3>Marcadores más probables</h3>
+      <table class="mk"><thead><tr><th>Marcador</th><th class="n">Prob.</th><th class="n">Cuota justa</th></tr></thead><tbody>
+        ${s.marcadores.map(([a, b, p]) => `<tr><td>${esc(nl)} <b class="mono">${a}–${b}</b> ${esc(nv)}</td><td class="n">${pct(p, 1)}</td><td class="n">${f2(1 / p)}</td></tr>`).join("")}
+      </tbody></table></div></div>
+    <details class="small"><summary>Cómo se calculó</summary>
+      <p>${s.n.toLocaleString("es-MX")} partidos simulados. 1) Se estimó el modelo Dixon-Coles con todos los resultados (los recientes pesan más). 2) La incertidumbre de las fuerzas de ataque, defensa, localía y ρ se aproximó con la inversa del Hessiano de la verosimilitud penalizada, y de esa normal se sacaron ${s.juegos.toLocaleString("es-MX")} juegos de parámetros. 3) Con cada juego se calcularon los goles esperados de los dos equipos y se simularon 10 marcadores de la matriz Poisson con la corrección Dixon-Coles para marcadores bajos. 4) Los porcentajes son la frecuencia de cada resultado. "± error" es el error de muestreo de la simulación (95%); "Rango 90%" muestra cuánto cambia la probabilidad según la incertidumbre de los parámetros. "Fórmula" es el cálculo exacto sin incertidumbre: la simulación suele dar algo menos de empates, porque la incertidumbre hace más probables los partidos desiguales. No incluye lesiones ni alineaciones; ver METODOLOGIA_SIMULACIONES.md.</p></details>`;
+}
+
+function temporada(el, L) {
+  const T = L.temporada_sim;
+  if (!T) { el.innerHTML = `<div class="panel empty"><p>No hay simulación de temporada para esta liga en esta versión.</p></div>`; return }
+  const E = T.tabla.length;
+  const mini = d => { const mx = Math.max(...d); return `<svg viewBox="0 0 ${E * 4} 16" width="${E * 4}" height="16" aria-hidden="true">${d.map((p, i) => `<rect x="${i * 4}" y="${16 - 16 * p / mx}" width="3" height="${16 * p / mx}" fill="var(--turf)"/>`).join("")}</svg>` };
+  const actual = [...T.tabla].sort((a, b) => b.pts - a.pts);
+  const p = x => x == null ? "–" : x < 0.001 && x > 0 ? "<0.1%" : pct(x, 1);
+  el.innerHTML = `<div class="panel" style="display:grid;gap:12px">
+    <p class="small" style="margin:0">${T.temporadas.toLocaleString("es-MX")} temporadas simuladas con los ${T.pendientes} partidos que faltan${liga === "ligamx" ? " de la fase regular (sin liguilla)" : ""}. Cada temporada usa un juego distinto de parámetros del modelo y se suma a la tabla actual; empates en puntos se resuelven por diferencia de goles, goles a favor y sorteo.</p>
+    <div class="scroll"><table><thead><tr><th class="n">Hoy</th><th>Equipo</th><th class="n">PJ</th><th class="n">Pts</th><th class="n">Pts finales esperados</th><th class="n">Rango 90%</th><th class="n">${esc(T.etiqueta1)}</th><th class="n">${esc(T.etiqueta_arriba)}</th>${T.n_desc ? `<th class="n">Descenso</th>` : ""}<th class="n">Posición media</th><th>Posiciones (1 → ${E})</th></tr></thead><tbody>
+      ${T.tabla.map(r => `<tr><td class="n">${actual.indexOf(r) + 1}</td><td>${esc(r.equipo)}</td><td class="n">${r.pj}</td><td class="n">${r.pts}</td><td class="n"><b>${r.pts_esp.toFixed(1)}</b></td><td class="n">${r.pts_p5_p95[0]}–${r.pts_p5_p95[1]}</td>
+        <td class="n">${p(r.p1)}</td><td class="n">${p(r.parriba)}</td>${T.n_desc ? `<td class="n">${p(r.pdesc)}</td>` : ""}<td class="n">${r.pos_media.toFixed(1)}</td><td>${mini(r.pos_dist)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="small" style="margin:0">Ordenado por puntos finales esperados. "Rango 90%": en 9 de cada 10 temporadas simuladas el equipo termina con puntos dentro de ese rango. La barrita muestra con qué frecuencia termina en cada posición. ${T.n_desc ? `Descenso = últimos ${T.n_desc} lugares directos.` : ""}</p></div>`;
 }
 
 function fiab(el, B) {

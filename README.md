@@ -20,6 +20,7 @@ Archivos:
 | `jugadores.py` | Plantillas, estadísticas por jugador, lesiones y noticias |
 | `plantilla.html` | Diseño de la página (HTML/CSS/JS); el script le inserta los datos |
 | `index.html` | La página lista para abrir |
+| `METODOLOGIA_SIMULACIONES.md` | Cómo se hacen las simulaciones Montecarlo (partido: 20,000 simulaciones con incertidumbre de parámetros; temporada: 10,000 temporadas) |
 | `.github/workflows/actualizar.yml` | Actualización automática en GitHub cada 2 horas y publicación en GitHub Pages |
 
 ### Actualización automática en GitHub
