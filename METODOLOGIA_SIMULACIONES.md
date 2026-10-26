@@ -71,13 +71,29 @@ Para cada partido se reporta:
 
 No se simulan la liguilla, el repechaje ni los desempates oficiales específicos de cada liga, como el enfrentamiento directo.
 
-## 6. Cómo leer los números
+## 6. Champions y Europa League (modelo propio)
+
+En las copas se enfrentan clubes de ligas distintas, así que las fuerzas domésticas no son comparables directamente. Como ClubElo no siempre responde, el tablero usa un modelo propio:
+
+- **Datos:** todos los partidos de Champions, Europa y Conference League que tiene ESPN desde julio de 2025, incluidas las rondas previas. Se ajustan juntos porque muchos clubes pasan de una copa a otra.
+- **Fuerza de un club de nuestras 6 ligas:** ataque = ataque en su liga doméstica (del modelo de esa liga) + un **ajuste por liga**; lo mismo para la defensa. El ajuste por liga mide, por ejemplo, cuánto más fuerte es un club de la Premier frente a uno de la Eredivisie con la misma fuerza relativa en su liga.
+- **Clubes de otras ligas** (Alemania, Portugal, Bélgica, Turquía, Escocia, etc.): ataque = ajuste común "otras ligas" + desviación propia. La desviación propia se estima solo con sus partidos europeos y tiene regularización fuerte (ridge 2.0) hacia la media, porque cada club juega pocos partidos.
+- **Estimación:** Poisson ponderado (mismo decaimiento temporal) y penalizado, con gradiente analítico. La localía se estima con estos mismos partidos. ρ se fija en el promedio de las ligas domésticas.
+- **Incertidumbre:** inversa del Hessiano exacto de la parte Poisson. Las fuerzas domésticas se toman como dadas, así que su incertidumbre no se suma.
+- **Simulación de la fase de liga** (36 equipos, 8 partidos cada uno): se juega el calendario restante publicado por ESPN. 1-8 pasan a octavos, 9-24 al playoff y 25-36 quedan eliminados.
+- **Validación:** el modelo se ajusta solo con la temporada anterior y se pronostican los partidos jugados de la actual. Advertencia: las fuerzas domésticas usadas son las actuales, lo que favorece un poco al modelo.
+
+## 7. Probabilidad en vivo
+
+En la pestaña En vivo, para un partido en juego en el minuto t con marcador a-b, se simulan 10,000 veces los goles restantes como Poisson(λ · (90 − t)/90) para cada equipo, con los goles esperados λ del modelo antes del partido, y se suman al marcador actual. No considera expulsiones, el tiempo añadido ni que el ritmo de goles cambia según el marcador.
+
+## 8. Cómo leer los números
 
 - **"45% ± 0.9"** significa que, según el modelo, el resultado ocurre 45 de cada 100 veces, y que la simulación tiene un error de muestreo de 0.9 puntos. Es un error pequeño: aumentar las simulaciones no cambiaría la conclusión.
 - **"Rango 90%: 24%–70%"** no es un error de la simulación. Mide cuánto sabemos realmente de la fuerza de los equipos: con los datos disponibles, la probabilidad verdadera podría estar en cualquier punto de ese rango. Un rango ancho pide cautela.
 - **Cuota justa** = 1 / probabilidad. Solo hay valor esperado positivo si la casa paga más que eso, y aun así, la ventaja debe ser mayor que la incertidumbre del modelo.
 
-## 7. Limitaciones
+## 9. Limitaciones
 
 - **Independencia y estructura:** los goles se modelan como Poisson con una corrección solo para marcadores bajos. No hay dinámica dentro del partido (expulsiones, el equipo que va ganando se cierra, etc.).
 - **Sin lesiones ni alineaciones:** el modelo solo ve resultados. Las bajas que aparecen en la página son informativas y no ajustan las probabilidades. Una baja importante de última hora no está reflejada.
@@ -87,6 +103,6 @@ No se simulan la liguilla, el repechaje ni los desempates oficiales específicos
 - **Fuerzas constantes en el resto de la temporada:** en la simulación de temporada no hay cambios de entrenador, fichajes ni lesiones futuras.
 - **Las casas de apuestas tienen más información:** alineaciones, mercado y modelos propios. En la prueba fuera de muestra (pestaña Fiabilidad), las cuotas de cierre suelen ser más precisas que este modelo.
 
-## 8. Por qué no garantiza apuestas ganadoras
+## 10. Por qué no garantiza apuestas ganadoras
 
 Una probabilidad del 60% falla 4 de cada 10 veces. Aunque el modelo estuviera bien calibrado, las rachas perdedoras largas son normales. Además, el margen de la casa (5% a 10% en mercados 1X2) hace que la mayoría de las apuestas tengan valor esperado negativo. El valor esperado positivo solo existe cuando la probabilidad del modelo es claramente mayor que la implícita en la cuota, y el rango de incertidumbre muestra que esa diferencia puede ser ilusoria. Úsalo como herramienta de análisis, con montos pequeños y fijos y un registro de cada apuesta para medir si el método realmente funciona.

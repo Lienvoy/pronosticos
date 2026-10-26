@@ -170,6 +170,7 @@ def carga_openfootball(codigo):
 ESPN_SB = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 ESPN_LIGA = {"premier": "eng.1", "laliga": "esp.1", "seriea": "ita.1", "ligue1": "fra.1",
              "eredivisie": "ned.1", "ligamx": "mex.1"}
+MAPAS, MODELOS = {}, {}   # nombre ESPN -> football-data y modelo ajustado de cada liga (para las copas)
 ESPN_STATS = {"totalShots": "tiros", "shotsOnTarget": "arco", "wonCorners": "corners",
               "yellowCards": "amarillas", "redCards": "rojas"}
 
@@ -296,6 +297,7 @@ def complemento_espn(clave, jug, fut):
     sin_mapa = sorted({n for e in eventos for n in (e["local"], e["visita"]) if n not in mapa})
     if sin_mapa:
         print("    ESPN sin equivalencia:", ", ".join(sin_mapa))
+    MAPAS[clave] = mapa          # lo reutiliza el modelo de copas europeas
     return pd.DataFrame(jugados, columns=cols), pd.DataFrame(proximos, columns=cols)
 
 
@@ -485,6 +487,9 @@ ZONAS = {   # clave: (etiqueta del 1º, plazas de arriba, etiqueta, plazas de de
     "premier": ("Campeón", 4, "Top 4", 3, True), "laliga": ("Campeón", 4, "Top 4", 3, True),
     "seriea": ("Campeón", 4, "Top 4", 3, True), "ligue1": ("Campeón", 4, "Top 4", 2, True),
     "eredivisie": ("Campeón", 4, "Top 4", 2, True), "ligamx": ("Superlíder", 6, "Liguilla directa (top 6)", 0, False),
+    # copas: fase de liga de 36 equipos; 1-8 a octavos, 9-24 a playoff, 25-36 eliminados
+    "ucl": ("1º de la fase", 8, "Top 8 (octavos directos)", 12, True),
+    "uel": ("1º de la fase", 8, "Top 8 (octavos directos)", 12, True),
 }
 
 
@@ -569,10 +574,11 @@ def simula_partido(mod, th, local, visita, rng):
             "ambos": round(float(((gl > 0) & (gv > 0)).mean()), 4)}
 
 
-def simula_temporada(clave, mod, th, act, fut, rng):
-    """10,000 temporadas: se juega el calendario restante y se suman a la tabla actual."""
+def simula_temporada(clave, mod, th, act, fut, rng, pendientes=None, equipos=None):
+    """10,000 temporadas: se juega el calendario restante y se suman a la tabla actual.
+    Si se da `pendientes` (lista de (local, visita, True)), se usa ese calendario en vez de generarlo."""
     etiqueta1, n_arriba, etiqueta_arriba, n_desc, ida_vuelta = ZONAS[clave]
-    equipos = sorted(set(act["local"]) | set(act["visita"]))
+    equipos = equipos or sorted(set(act["local"]) | set(act["visita"]))
     ix = {e: i for i, e in enumerate(equipos)}
     th = th[:S_TEMP]
     E, T = len(equipos), S_TEMP * TEMP_POR_JUEGO
@@ -583,7 +589,9 @@ def simula_temporada(clave, mod, th, act, fut, rng):
         pts0[i] += 3 if r.gl > r.gv else 1 if r.gl == r.gv else 0
         pts0[j] += 3 if r.gv > r.gl else 1 if r.gl == r.gv else 0
     jugados = set(zip(act["local"], act["visita"]))
-    if ida_vuelta:
+    if pendientes is not None:
+        pass
+    elif ida_vuelta:
         pendientes = [(a, b, True) for a in equipos for b in equipos if a != b and (a, b) not in jugados]
     else:   # Liga MX: una vuelta; la localía sale del calendario conocido o, si no, a la suerte
         conocidos = {frozenset((r.local, r.visita)): (r.local, r.visita) for r in fut.itertuples()} if len(fut) else {}
@@ -629,6 +637,255 @@ def simula_temporada(clave, mod, th, act, fut, rng):
     tabla.sort(key=lambda r: -r["pts_esp"])
     return {"temporadas": T, "pendientes": len(pendientes), "etiqueta1": etiqueta1,
             "etiqueta_arriba": etiqueta_arriba, "n_desc": n_desc, "tabla": tabla}
+
+
+# ----------------------------------------------------------------------------- copas europeas (modelo propio)
+# Respaldo que no depende de ClubElo. Fuerza de un club en Europa:
+#   ataque = ataque en su liga doméstica + ajuste de esa liga + desviación propia (solo clubes de ligas que no seguimos)
+# Los ajustes por liga, la localía y las fuerzas de clubes de otras ligas se estiman con partidos de Champions y
+# Europa League de ESPN (temporada anterior y actual), con decaimiento temporal y regularización.
+ESPN_COPAS = {"ucl": ("uefa.champions", "Champions League"), "uel": ("uefa.europa", "Europa League")}
+GRUPOS = list(ESPN_LIGA) + ["otras"]
+RIDGE_LIGA, RIDGE_OTROS = 0.5, 2.0       # la desviación de clubes de otras ligas se encoge fuerte hacia la media
+COPA_DESDE = date(2025, 7, 1)
+COLS_FILA = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25"]
+
+
+def eventos_copa(codigo):
+    """Partidos de la copa por mes (ESPN acepta dates=AAAAMM) y ventana de la fase de liga actual."""
+    base = get(f"{ESPN_SB}/{codigo}/scoreboard").json()
+    fase = next((e for c in base["leagues"][0].get("calendar", []) for e in c.get("entries", [])
+                 if "league" in e.get("label", "").lower()), None)
+    hoy = date.today()
+    ini_fase = date.fromisoformat(fase["startDate"][:10]) if fase else hoy - timedelta(days=60)
+    fin_fase = date.fromisoformat(fase["endDate"][:10]) if fase else hoy + timedelta(days=100)
+    hasta, m, eventos = max(fin_fase, hoy + timedelta(days=30)), COPA_DESDE, {}
+    while m <= hasta:
+        try:
+            js = get(f"{ESPN_SB}/{codigo}/scoreboard?dates={m:%Y%m}&limit=500").json()
+        except Exception:  # noqa: BLE001
+            js = {}
+        for ev in js.get("events", []):
+            c = ev["competitions"][0]
+            eq = {x.get("homeAway"): x for x in c.get("competitors", [])}
+            if "home" not in eq or "away" not in eq:
+                continue
+            st = ev["status"]["type"]
+            try:
+                gl, gv = (int(eq["home"]["score"]), int(eq["away"]["score"])) if st.get("completed") else (None, None)
+            except (TypeError, ValueError):
+                continue
+            eventos[ev["id"]] = {"fecha": date.fromisoformat(ev["date"][:10]), "estado": st.get("state"),
+                                 "local": eq["home"]["team"]["displayName"], "visita": eq["away"]["team"]["displayName"],
+                                 "id_l": str(eq["home"]["team"]["id"]), "id_v": str(eq["away"]["team"]["id"]),
+                                 "gl": gl, "gv": gv, "odds": (c.get("odds") or [None])[0]}
+        m = (m + timedelta(days=32)).replace(day=1)
+    return sorted(eventos.values(), key=lambda e: e["fecha"]), ini_fase, fin_fase
+
+
+_EUROPA = {}
+
+
+def partidos_europeos():
+    """Todos los partidos jugados de Champions, Europa y Conference League: se ajustan juntos porque los clubes se
+    mueven entre copas y así cada club tiene más partidos."""
+    if "todos" not in _EUROPA:
+        todos = {}
+        for codigo in [c for c, _ in ESPN_COPAS.values()] + ["uefa.europa.conf"]:
+            try:
+                evs = _EUROPA[codigo] = eventos_copa(codigo)
+            except Exception as e:  # noqa: BLE001
+                print(f"  ESPN {codigo} no disponible: {e}")
+                continue
+            for ev in evs[0]:
+                if ev["gl"] is not None:
+                    todos[(ev["fecha"], ev["id_l"], ev["id_v"])] = ev
+        _EUROPA["todos"] = sorted(todos.values(), key=lambda e: e["fecha"])
+    return _EUROPA["todos"]
+
+
+def bases_domesticas():
+    """id ESPN del club -> (grupo, ataque doméstico, defensa doméstica) para los clubes de nuestras 6 ligas."""
+    out = {}
+    for clave, cod in ESPN_LIGA.items():
+        mod, mapa = MODELOS.get(clave), MAPAS.get(clave, {})
+        if not mod:
+            continue
+        try:
+            d = get(f"{ESPN_SB}/{cod}/teams").json()
+        except Exception:  # noqa: BLE001
+            continue
+        for t in d["sports"][0]["leagues"][0]["teams"]:
+            t = t.get("team", t)
+            fd = mapa.get(t.get("displayName"))
+            if fd in mod["ataque"]:
+                out[str(t["id"])] = (GRUPOS.index(clave), mod["ataque"][fd], mod["defensa"][fd])
+    return out
+
+
+def ajusta_copa(eventos, bases, hasta):
+    """Poisson ponderado y penalizado con gradiente analítico; ρ se fija en el promedio de las ligas domésticas.
+    Parámetros q = [c, localía, ajuste ataque por grupo (G), ajuste defensa por grupo (G), desv. ataque (K), desv. defensa (K)]."""
+    d = [e for e in eventos if e["gl"] is not None and e["fecha"] < hasta]
+    otros = sorted({i for e in d for i in (e["id_l"], e["id_v"]) if i not in bases})
+    ko = {i: k for k, i in enumerate(otros)}
+    G, K = len(GRUPOS), len(otros)
+    P = 2 + 2 * G + 2 * K
+
+    def club(i):
+        return bases[i] if i in bases else (G - 1, 0.0, 0.0)
+
+    def fila(atacante, defensor, local):
+        """Fila de diseño y parte fija del log-goles esperados del atacante."""
+        x = np.zeros(P)
+        x[0] = 1
+        x[1] = local
+        ga, aa, _ = club(atacante)
+        gd, _, dd = club(defensor)
+        x[2 + ga] = 1
+        x[2 + G + gd] = 1
+        if atacante in ko:
+            x[2 + 2 * G + ko[atacante]] = 1
+        if defensor in ko:
+            x[2 + 2 * G + K + ko[defensor]] = 1
+        return x, aa + dd
+
+    Xl, bl = zip(*[fila(e["id_l"], e["id_v"], 1) for e in d]) if d else ((), ())
+    Xm, bm = zip(*[fila(e["id_v"], e["id_l"], 0) for e in d]) if d else ((), ())
+    X, base = np.array(Xl + Xm), np.array(bl + bm)
+    goles = np.array([e["gl"] for e in d] + [e["gv"] for e in d], float)
+    w = np.tile(np.exp(-XI * np.array([(hasta - e["fecha"]).days for e in d])), 2)
+    ridge = np.r_[0, 0, [RIDGE_LIGA] * 2 * G, [RIDGE_OTROS] * 2 * K]
+
+    def f(q):
+        eta = X @ q + base
+        lam = np.exp(eta)
+        val = -(w * (goles * eta - lam)).sum() + (ridge * q ** 2).sum()
+        grad = -X.T @ (w * (goles - lam)) + 2 * ridge * q
+        return val, grad
+
+    bounds = [(None, None), (-1, 1)] + [(-3, 3)] * (P - 2)
+    q = minimize(f, np.r_[0.1, 0.2, np.zeros(P - 2)], jac=True, method="L-BFGS-B", bounds=bounds).x
+    lam = np.exp(X @ q + base)
+    H = (X * (w * lam)[:, None]).T @ X + 2 * np.diag(ridge)
+    rho = float(np.mean([m["rho"] for m in MODELOS.values()])) if MODELOS else -0.05
+    return {"q": q, "cov": np.linalg.inv(H + np.eye(P) * 1e-9), "rho": rho, "ko": ko, "G": G, "K": K, "n": len(d)}
+
+
+def modelo_copa_estandar(ajuste, bases, equipos):
+    """Lleva el modelo de copa al formato de las ligas (mu, home, rho, ataque/defensa por club) para reutilizar
+    las mismas funciones de probabilidad y Montecarlo. equipos: {nombre: id ESPN}.
+    Devuelve el modelo y una función que transforma muestras de q en muestras θ en ese formato."""
+    G, K, ko = ajuste["G"], ajuste["K"], ajuste["ko"]
+    nombres = sorted(equipos)
+    n, Pq = len(nombres), len(ajuste["q"])
+    T = np.zeros((3 + 2 * n, Pq))
+    b = np.zeros(3 + 2 * n)
+    T[0, 0] = 1
+    T[1, 1] = 1
+    b[2] = ajuste["rho"]
+    for j, nom in enumerate(nombres):
+        i = equipos[nom]
+        g, a, dd = bases[i] if i in bases else (G - 1, 0.0, 0.0)
+        T[3 + j, 2 + g] = 1
+        T[3 + n + j, 2 + G + g] = 1
+        b[3 + j], b[3 + n + j] = a, dd
+        if i in ko:
+            T[3 + j, 2 + 2 * G + ko[i]] = 1
+            T[3 + n + j, 2 + 2 * G + K + ko[i]] = 1
+    theta = T @ ajuste["q"] + b
+    mod = {"mu": float(theta[0]), "home": float(theta[1]), "rho": float(theta[2]), "orden": nombres,
+           "ataque": {e: float(theta[3 + j]) for j, e in enumerate(nombres)},
+           "defensa": {e: float(theta[3 + n + j]) for j, e in enumerate(nombres)}}
+
+    def muestras(rng):
+        L = np.linalg.cholesky(ajuste["cov"])
+        qs = ajuste["q"][None, :] + rng.standard_normal((S_PARAM, Pq)) @ L.T
+        th = qs @ T.T + b
+        th[:, 1] = th[:, 1].clip(-1, 1)
+        return th
+    return mod, muestras
+
+
+def _df_eventos(evs):
+    df = pd.DataFrame([{**dict.fromkeys(COLS_FILA, np.nan), "fecha": e["fecha"], "local": e["local"],
+                        "visita": e["visita"], "gl": e["gl"], "gv": e["gv"], **_cuotas_espn(e["odds"])} for e in evs],
+                      columns=COLS_FILA)
+    return df
+
+
+def procesa_copa(clave):
+    codigo, nombre = ESPN_COPAS[clave]
+    europa = partidos_europeos()
+    if codigo not in _EUROPA:
+        return None
+    eventos, ini_fase, fin_fase = _EUROPA[codigo]
+    hoy = date.today()
+    ini_temp = date(hoy.year if hoy.month >= 7 else hoy.year - 1, 7, 1)
+    jugados = [e for e in eventos if e["gl"] is not None]
+    if len(europa) < 50:
+        print(f"  {nombre}: solo {len(europa)} partidos europeos en ESPN, se omite")
+        return None
+    bases = bases_domesticas()
+    ajuste = ajusta_copa(europa, bases, hoy + timedelta(days=1))
+    actuales = [e for e in eventos if e["fecha"] >= ini_temp]
+    equipos = {e[k]: e[i] for e in actuales for k, i in (("local", "id_l"), ("visita", "id_v"))}
+    mod, muestras = modelo_copa_estandar(ajuste, bases, equipos)
+    n_dom = sum(1 for i in set(equipos.values()) if i in bases)
+    print(f"  {nombre}: {ajuste['n']} partidos europeos para ajustar ({len(jugados)} de esta copa desde {COPA_DESDE}), "
+          f"{len(equipos)} clubes esta temporada ({n_dom} con fuerza doméstica)")
+
+    # validación fuera de muestra: se ajusta solo con la temporada pasada y se pronostica la actual
+    preds = []
+    val = ajusta_copa(europa, bases, ini_temp)
+    if val["n"] >= 50:
+        mod_v, _ = modelo_copa_estandar(val, bases, equipos)
+        for e in actuales:
+            if e["gl"] is not None:
+                p1, px, p2, _ = prob_1x2(mod_v, e["local"], e["visita"])
+                preds.append({"fecha": e["fecha"].isoformat(), "local": e["local"], "visita": e["visita"],
+                              "gl": e["gl"], "gv": e["gv"], "p": [round(p1, 4), round(px, 4), round(p2, 4)],
+                              "c": [None, None, None]})
+    hist = _df_eventos([e for e in jugados if e["fecha"] < ini_temp])
+    met = metricas(preds, hist)
+    predmap = {(p["fecha"], p["local"]): p for p in preds}
+
+    th = muestras(_rng(clave))
+    fut = _df_eventos([e for e in eventos if e["estado"] == "pre" and hoy <= e["fecha"] <= hoy + timedelta(days=30)])
+    fut = fut.sort_values("fecha").head(40)
+    sims = [simula_partido(mod, th, r.local, r.visita, _rng(clave, f"{r.fecha}{r.local}{r.visita}")) for r in fut.itertuples()]
+    fase = [e for e in eventos if ini_fase <= e["fecha"] <= fin_fase]
+    act_fase = _df_eventos([e for e in fase if e["gl"] is not None])
+    equipos_fase = sorted({e["local"] for e in fase} | {e["visita"] for e in fase})
+    temporada = None
+    if 30 <= len(equipos_fase) <= 40:
+        pend = [(e["local"], e["visita"], True) for e in fase if e["gl"] is None]
+        temporada = simula_temporada(clave, mod, th, act_fase, act_fase.iloc[0:0], _rng(clave, "fase"),
+                                     pendientes=pend, equipos=equipos_fase)
+    print(f"  Montecarlo: {len(sims)} partidos próximos, fase de liga con {len(equipos_fase)} equipos"
+          + (f" y {temporada['pendientes']} partidos pendientes" if temporada else " (sin simulación de fase)")
+          + (f"; validación {met['n']} partidos, log-loss {met['logloss']:.3f} vs {met['logloss_base']:.3f} base" if met else ""))
+
+    def filas(df):
+        out = []
+        for r in df[COLS_FILA].to_dict("records"):
+            r = {k: limpio(v) for k, v in r.items()}
+            r["fecha"] = r["fecha"].isoformat()
+            if (r["fecha"], r["local"]) in predmap:
+                r["p_prev"] = predmap[(r["fecha"], r["local"])]["p"]
+            out.append(r)
+        return out
+    prox = filas(fut)
+    for r, s in zip(prox, sims):
+        r["sim"] = s
+    recientes = _df_eventos([e for e in actuales if e["gl"] is not None]).sort_values("fecha", ascending=False)
+    return {"nombre": nombre, "origen": f"modelo propio: {ajuste['n']} partidos europeos de ESPN (Champions, Europa y Conference) + fuerzas de las ligas domésticas",
+            "actualizado": max(e["fecha"] for e in jugados).isoformat(), "inicio": ini_temp.isoformat(),
+            "temporada_sim": temporada,
+            "modelo": {"mu": mod["mu"], "home": mod["home"], "rho": mod["rho"],
+                       "equipos": {e: [round(mod["ataque"][e], 4), round(mod["defensa"][e], 4)] for e in mod["orden"]}},
+            "tabla": estadisticas(act_fase, ini_fase) if len(act_fase) else [], "proximos": prox,
+            "recientes": filas(recientes), "backtest": met}
 
 
 # ----------------------------------------------------------------------------- estadísticas
@@ -713,6 +970,7 @@ def procesa_liga(clave, fuente):
 
     print(f"  {nombre}: {len(jug)} partidos ({origen}), temporada desde {inicio}, último {ultimo}")
     mod = ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, con_cov=True)
+    MODELOS[clave] = mod
     preds, met = backtest(jug, inicios)
 
     proximos = fut[fut["fecha"] >= hoy].sort_values("fecha").head(40)
@@ -746,7 +1004,7 @@ def procesa_liga(clave, fuente):
     for r, s in zip(prox_filas, sims):
         r["sim"] = s
     return {"nombre": nombre, "origen": origen, "actualizado": ultimo.isoformat(), "inicio": inicio.isoformat(),
-            "temporada_sim": temporada,
+            "temporada_sim": temporada, "espn": MAPAS.get(clave, {}),     # nombre ESPN -> nombre del modelo (pestaña En vivo)
             "modelo": {"mu": mod["mu"], "home": mod["home"], "rho": mod["rho"],
                        "equipos": {e: [round(mod["ataque"][e], 4), round(mod["defensa"][e], 4)] for e in mod["ataque"]
                                    if e in set(act["local"]) | set(act["visita"])},
@@ -772,11 +1030,19 @@ def main():
             r = None
         if r:
             data["ligas"][clave] = r
+    for clave, (_, nombre) in ESPN_COPAS.items():
+        print("Procesando", nombre)
+        try:
+            r = procesa_copa(clave)
+            if r:
+                data["ligas"][clave] = r
+        except Exception as e:  # noqa: BLE001
+            print("  error:", e)
     try:
         data["elo"] = carga_clubelo()
         print(f"ClubElo: {len(data['elo'])} clubes")
     except Exception as e:  # noqa: BLE001
-        print("ClubElo no disponible (Champions/Europa quedarán sin calculadora):", e)
+        print("ClubElo no disponible (no importa: Champions/Europa usan el modelo propio):", e)
     data["copas"] = COPAS
     if not args.sin_jugadores:
         print("Jugadores (ESPN, Fantasy PL, Transfermarkt); tarda 3 a 5 minutos")

@@ -106,7 +106,17 @@ th[aria-sort] { color: var(--ink) }
 .news .n { display: grid; gap: 2px; max-width: 80ch }
 .btn { font: 600 14px var(--f-display); letter-spacing: .05em; text-transform: uppercase; background: none; border: 1px solid var(--line); color: var(--ink); padding: 6px 14px; border-radius: 4px; cursor: pointer; justify-self: start }
 .fx .out { font-size: 12px; color: var(--red) }
-.simbtn { margin-top: 4px; padding: 3px 10px; font-size: 13px }
+.simbtn { margin-top: 4px; padding: 3px 10px; font-size: 13px; text-decoration: none; display: inline-block }
+.acciones { display: flex; flex-wrap: wrap; gap: 6px }
+td .simbtn { margin: 0; padding: 1px 8px; font-size: 12px }
+ol.pasos { display: grid; gap: 8px; padding-left: 20px; max-width: 95ch } ol.pasos b { color: var(--ink) }
+.vv { display: grid; grid-template-columns: 110px minmax(0,1fr) minmax(220px, 300px); gap: 8px 18px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line) }
+.vv:last-child { border-bottom: 0 }
+.vv .when { font: 12px var(--f-mono); color: var(--muted) }
+.vv .marc { font: 600 22px var(--f-display); letter-spacing: .03em }
+.vv .min { font: 600 13px var(--f-mono); color: var(--red) }
+.vv .gol { font-size: 12px; color: var(--muted) }
+@media (max-width: 640px) { .vv { grid-template-columns: 1fr; gap: 4px } }
 .simbtn[aria-expanded="true"] { background: var(--turf); border-color: var(--turf); color: var(--bg) }
 .simbox { display: grid; gap: 12px; padding: 12px; margin: 0 0 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px }
 .simbox[hidden] { display: none }
@@ -145,7 +155,7 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 <script>
 (() => {
 const D = window.DATOS || { ligas: {}, copas: {} };
-const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["ucl","Champions"],["uel","Europa League"]];
+const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["ucl","Champions"],["uel","Europa League"],["vivo","● En vivo"]];
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
@@ -202,7 +212,7 @@ function evHtml(p, cuota) {
 }
 
 // ---------- estado
-let liga = store.get("liga", null), vistaTab = store.get("tab", "proximos");
+let liga = store.get("liga", null), vistaTab = store.get("tab", "proximos"), vivoTimer = null;
 const hash = location.hash.slice(1); if (ORDEN.some(o => o[0] === hash)) liga = hash;
 if (!ORDEN.some(o => o[0] === liga)) liga = (ORDEN.find(o => D.ligas[o[0]]) || ORDEN[0])[0];
 ["banca", "kelly", "minev", "tope"].forEach(id => { const el = $("#" + id); el.value = store.get(id, el.value);
@@ -210,23 +220,26 @@ if (!ORDEN.some(o => o[0] === liga)) liga = (ORDEN.find(o => D.ligas[o[0]]) || O
 
 function chips() {
   $("#ligas").innerHTML = ORDEN.map(([k, n]) => {
-    const ok = D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
+    const ok = k === "vivo" || D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
     return `<button class="chip" data-k="${k}" aria-pressed="${k === liga}">${n}${ok ? "" : '<span class="dot" title="Sin datos en esta versión"></span>'}</button>` }).join("");
   $("#ligas").querySelectorAll(".chip").forEach(b => b.onclick = () => { liga = b.dataset.k; store.set("liga", liga); render() });
 }
 
 function render() {
   chips();
-  const v = $("#vista"), copa = liga === "ucl" || liga === "uel", L = D.ligas[liga];
+  clearInterval(vivoTimer);
+  if (liga === "vivo") return vivoVista($("#vista"));
+  // las copas usan el modelo propio (mismas pestañas que una liga); si no lo hay, la calculadora Elo de ClubElo
+  const esCopa = liga === "ucl" || liga === "uel", L = D.ligas[liga], copa = esCopa && !L, v = $("#vista");
   const nombre = ORDEN.find(o => o[0] === liga)[1];
-  const tabs = copa ? [["calc", "Calculadora"]] : [["proximos", "Próximos"], ["calc", "Calculadora"], ["tabla", "Tabla y estadísticas"], ["temporada", "Simulación de temporada"], ["resultados", "Resultados"], ["fiab", "Fiabilidad"]];
+  const tabs = copa ? [["calc", "Calculadora"]] : [["proximos", "Próximos"], ["calc", "Calculadora"], ["tabla", esCopa ? "Tabla de la fase" : "Tabla y estadísticas"], ["temporada", esCopa ? "Simulación de fase" : "Simulación de temporada"], ["resultados", "Resultados"], ["fiab", "Fiabilidad"]];
   tabs.push(["jugadores", "Jugadores"]);
   if (!tabs.some(t => t[0] === vistaTab)) vistaTab = tabs[0][0];
   let meta = "";
   if (L) {
     const dias = Math.round((Date.now() - new Date(L.actualizado)) / 864e5);
     meta = `<div class="meta"><span>Fuente: ${esc(L.origen)}</span><span>Último resultado: ${L.actualizado}</span><span>Temporada desde ${L.inicio}</span><span>Ventaja de local: ×${Math.exp(L.modelo.home).toFixed(2)} en goles esperados</span></div>
-    ${dias > 10 && vistaTab !== "jugadores" ? `<p class="warn">Los resultados de esta fuente llevan ${dias} días sin actualizarse, así que el modelo no ve las últimas jornadas. Corre <code>actualizar_datos.py</code> en tu computadora para usar football-data.co.uk, que se actualiza dos veces por semana y trae cuotas.</p>` : ""}`;
+    ${dias > 10 && !esCopa && vistaTab !== "jugadores" ? `<p class="warn">Los resultados llevan ${dias} días sin actualizarse, así que el modelo no ve las últimas jornadas. Se pondrán al día en la próxima actualización.</p>` : ""}`;
   } else if (copa && D.elo) meta = `<div class="meta"><span>Fuente: ClubElo</span><span>Modelo: Elo con ventaja local de 65 puntos y 2.8 goles por partido</span></div>`;
   v.innerHTML = `<div style="display:grid;gap:14px">${meta}
     <div class="tabs" role="tablist">${tabs.map(([k, n]) => `<button class="tab" role="tab" data-t="${k}" aria-selected="${k === vistaTab}">${n}</button>`).join("")}</div>
@@ -240,14 +253,15 @@ function render() {
 }
 
 function vacio(nombre) {
-  const mx = liga === "ligamx";
-  return `<div class="panel empty"><h2>${esc(nombre)}: sin datos en esta versión</h2>
-    <p>${mx ? "Liga MX se descarga de football-data.co.uk (archivo <code>new/MEX.csv</code>, con cuotas de Pinnacle y promedio de mercado). Ese sitio no fue accesible desde donde se generó esta versión."
-            : "Champions y Europa League mezclan equipos de ligas distintas, así que se modelan con el rating Elo de ClubElo en lugar de Dixon-Coles. ClubElo no fue accesible desde donde se generó esta versión."}</p>
-    <p>En tu computadora: <code>pip install pandas numpy scipy requests lxml</code> y luego <code>python actualizar_datos.py</code>. Se regenera <code>index.html</code> con todas las competiciones.</p></div>`;
+  const esCopa = liga === "ucl" || liga === "uel";
+  return `<div class="panel empty"><h2>${esc(nombre)}: sin datos por ahora</h2>
+    <p>${esCopa ? "ESPN (partidos europeos para el modelo propio) y ClubElo no respondieron en la última actualización. Se reintentará en la próxima; no tienes que hacer nada."
+               : "football-data.co.uk y ESPN no respondieron en la última actualización. Se reintentará en la próxima; no tienes que hacer nada."}</p>
+    <p class="small">Generado ${esc(D.generado || "")}.</p></div>`;
 }
 
 // ---------- vistas de liga
+const google = (a, b, corto) => `<a class="btn simbtn" href="https://www.google.com/search?q=${encodeURIComponent(a + " vs " + b)}" target="_blank" rel="noopener">${corto ? "Google" : "Ver en Google"}</a>`;
 function filaPartido(r, lm, opts = {}) {
   const M = matriz(...lm), k = mercados(M), id = opts.id;
   const c = [r.c1, r.cx, r.c2], ps = [k.h, k.d, k.a];
@@ -257,7 +271,7 @@ function filaPartido(r, lm, opts = {}) {
     <div class="teams"><b>${esc(r.local)}</b><b>${esc(r.visita)}</b>
       <span class="xg">goles esperados ${lm[0].toFixed(2)} – ${lm[1].toFixed(2)} · más de 2.5 ${pct(k.o25)} · ambos anotan ${pct(k.btts)}</span>
       ${[r.local, r.visita].map(e => { const b = bajasEquipo(e); return b.length ? `<span class="out">Bajas ${esc(e)}: ${b.slice(0, 5).map(j => esc(j.nombre) + (j.lesion.estado === "Duda" ? " (duda)" : "")).join(", ")}${b.length > 5 ? ` y ${b.length - 5} más` : ""}</span>` : "" }).join("")}
-      ${r.sim ? `<button class="btn simbtn" data-sb="sb-${id}" aria-expanded="false" aria-controls="sb-${id}">Simulación</button>` : ""}</div>
+      <span class="acciones">${r.sim ? `<button class="btn simbtn" data-sb="sb-${id}" aria-expanded="false" aria-controls="sb-${id}">Simulación</button>` : ""}${google(r.local, r.visita)}</span></div>
     <div><div class="bar"><div class="b1" style="width:${100 * k.h}%">${pct(k.h)}</div><div class="bx" style="width:${100 * k.d}%">${pct(k.d)}</div><div class="b2" style="width:${100 * k.a}%">${pct(k.a)}</div></div>
       <div class="odds">${["1", "X", "2"].map((n, i) => `<input id="o-${id}-${i}" aria-label="Cuota ${n}" placeholder="${n} · ${f2(1 / ps[i])}" value="${(guard && guard[i]) || (c[i] ?? "")}" data-p="${ps[i]}">`).join("")}
       ${ps.map((p, i) => `<div class="ev" id="e-${id}-${i}"></div>`).join("")}</div></div></div>`;
@@ -281,9 +295,9 @@ function proximos(el, L) {
     <p class="small" style="margin:0 0 6px">Escribe la cuota de tu casa en cada casilla. El gris dentro de la casilla es la cuota justa del modelo; un porcentaje ámbar indica valor esperado por encima de tu mínimo y el monto sugerido.</p>
     ${L.proximos.map((r, i) => { const id = liga + "-" + r.fecha + "-" + i;
       return filaPartido(r, lambdasLiga(L, r.local, r.visita), { id }) + (r.sim ? `<div class="simbox" id="sb-${id}" hidden></div>` : "") }).join("")}</div>`;
-  el.querySelectorAll(".simbtn").forEach(b => b.onclick = () => {
+  el.querySelectorAll(".simbtn[data-sb]").forEach(b => b.onclick = () => {
     const box = document.getElementById(b.dataset.sb), r = L.proximos[+b.dataset.sb.split("-").pop()];
-    if (!box.innerHTML) box.innerHTML = simHtml(r.sim, r.local, r.visita);
+    if (!box.innerHTML) box.innerHTML = simHtml(r.sim, r.local, r.visita, L);
     box.hidden = !box.hidden; b.setAttribute("aria-expanded", String(!box.hidden));
   });
   conectarCuotas(el);
@@ -364,14 +378,14 @@ function resultados(el, L) {
         <div><span class="k">GF-GC</span><span class="v">${s.gf}-${s.gc}</span></div><div><span class="k">Puntos</span><span class="v">${3 * s.G + s.E}</span></div>
         <div><span class="k">Forma (5)</span><span class="v form" style="font-size:16px">${filas.slice(0, 5).reverse().map(r => { const c = suyo(r)[2]; return `<span class="${c}">${c}</span>` }).join("")}</span></div></div>`;
     }
-    $("#rres").innerHTML = `${resumen}<div class="scroll"><table><thead><tr><th>Fecha</th><th class="n">Local</th><th style="text-align:center">Marcador</th><th>Visita</th>${eq ? "<th>Res.</th>" : ""}<th class="n">Medio tiempo</th><th>Lo que esperaba el modelo</th><th class="n">Prob. del resultado</th></tr></thead><tbody>
+    $("#rres").innerHTML = `${resumen}<div class="scroll"><table><thead><tr><th>Fecha</th><th class="n">Local</th><th style="text-align:center">Marcador</th><th>Visita</th>${eq ? "<th>Res.</th>" : ""}<th class="n">Medio tiempo</th><th>Lo que esperaba el modelo</th><th class="n">Prob. del resultado</th><th></th></tr></thead><tbody>
       ${filas.map(r => { const res = r.gl > r.gv ? 0 : r.gl === r.gv ? 1 : 2, p = r.p_prev;
         const bar = p ? `<div class="bar" style="height:14px;line-height:14px;width:160px;font-size:0">${p.map((x, i) => `<div class="${["b1","bx","b2"][i]}" style="width:${100 * x}%;opacity:${i === res ? 1 : .35}"></div>`).join("")}</div>` : '<span class="small">sin pronóstico previo</span>';
         const b = n => n === eq ? `<b>${esc(n)}</b>` : esc(n);
         return `<tr><td class="mono">${r.fecha}</td><td class="n">${b(r.local)}</td><td class="mono" style="text-align:center"><b>${r.gl} – ${r.gv}</b></td><td>${b(r.visita)}</td>
           ${eq ? `<td class="form"><span class="${suyo(r)[2]}">${suyo(r)[2]}</span></td>` : ""}
-          <td class="n mono">${r.gl_mt != null ? r.gl_mt + "–" + r.gv_mt : "–"}</td><td>${bar}</td><td class="n">${p ? pct(p[res]) : "–"}</td></tr>` }).join("")}
-        ${filas.length ? "" : `<tr><td colspan="8" class="small">Sin partidos de este equipo en la temporada.</td></tr>`}
+          <td class="n mono">${r.gl_mt != null ? r.gl_mt + "–" + r.gv_mt : "–"}</td><td>${bar}</td><td class="n">${p ? pct(p[res]) : "–"}</td><td>${google(r.local, r.visita, true)}</td></tr>` }).join("")}
+        ${filas.length ? "" : `<tr><td colspan="9" class="small">Sin partidos de este equipo en la temporada.</td></tr>`}
       </tbody></table></div><p class="small" style="margin:0">Toda la temporada en curso. La barra muestra el pronóstico hecho antes del partido, sin conocer el resultado; el segmento resaltado es lo que pasó.${eq ? " G/E/P desde el punto de vista de " + esc(eq) + "." : ""}</p>`;
   };
   $("#fr").onchange = e => { eq = e.target.value; store.set("res." + liga, eq); pinta() };
@@ -387,7 +401,28 @@ function histTotal(h) {
       <text x="${i * bw + bw / 2}" y="${y - 3}" text-anchor="middle">${Math.round(100 * p)}</text>
       <text x="${i * bw + bw / 2}" y="${H + 14}" text-anchor="middle">${i}${i === h.length - 1 ? "+" : ""}</text>` }).join("")}</svg>`;
 }
-function simHtml(s, nl, nv) {
+function explicacion(s, nl, nv, L) {
+  const m = L.modelo, P = [-0.25, 0.25], [al, dl] = m.equipos[nl] || P, [av, dv] = m.equipos[nv] || P;
+  const e = Math.exp, f = x => x.toFixed(2), mult = x => "×" + e(x).toFixed(2);
+  const base = e(m.mu), loc = e(m.home), lam = base * e(al) * e(dv) * loc, mu2 = base * e(av) * e(dl);
+  const n = s.n.toLocaleString("es-MX"), veces = p => Math.round(p * s.n).toLocaleString("es-MX");
+  const [ma, mb, mp] = s.marcadores[0], ee = s.ee[0] * 1.96, A = s.analitica;
+  return `<details class="small"><summary>¿Cómo se calculó? (paso a paso con los números de este partido)</summary><ol class="pasos">
+    <li><b>Fuerzas del modelo.</b> Un equipo promedio contra otro promedio, sin localía, anota en promedio ${f(base)} goles. Jugar de local multiplica los goles por ${f(loc)}.
+      ${esc(nl)}: ataque ${mult(al)}, defensa ${mult(dl)}. ${esc(nv)}: ataque ${mult(av)}, defensa ${mult(dv)}. Un ataque ×1.20 anota 20% más que el promedio; una defensa ×0.80 recibe 20% menos. Salen de ajustar el modelo a todos los resultados, con más peso a los recientes.</li>
+    <li><b>Goles esperados.</b> ${esc(nl)} = ${f(base)} × ${f(e(al))} (su ataque) × ${f(e(dv))} (defensa de ${esc(nv)}) × ${f(loc)} (localía) = <b>${f(lam)}</b>.
+      ${esc(nv)} = ${f(base)} × ${f(e(av))} (su ataque) × ${f(e(dl))} (defensa de ${esc(nl)}) = <b>${f(mu2)}</b>.</li>
+    <li><b>Corrección Dixon-Coles</b> (ρ = ${m.rho.toFixed(3)}). Contar goles con Poisson por separado se equivoca un poco en marcadores bajos. Por eso la probabilidad del 0-0 se multiplica por ${f(1 - lam * mu2 * m.rho)}, la del 1-1 por ${f(1 - m.rho)}, la del 1-0 por ${f(1 + mu2 * m.rho)} y la del 0-1 por ${f(1 + lam * m.rho)}; después todo se reescala para sumar 100%.</li>
+    <li><b>Simulación.</b> Las fuerzas son estimaciones, no certezas. Se sacaron ${s.juegos.toLocaleString("es-MX")} juegos de fuerzas posibles, de una distribución normal con la incertidumbre del ajuste. Con cada juego se recalcularon los goles esperados, se armó la tabla de probabilidades de todos los marcadores de 0-0 a 10-10 y se sortearon 10 marcadores: se tira un número al azar entre 0 y 1 y se elige el marcador en el que la probabilidad acumulada lo alcanza. En total, ${n} partidos simulados.</li>
+    <li><b>Conteo.</b> En las ${n} simulaciones, ${esc(nl)} ganó ${veces(s.p[0])} veces (${pct(s.p[0], 1)}), empataron ${veces(s.p[1])} (${pct(s.p[1], 1)}) y ganó ${esc(nv)} ${veces(s.p[2])} (${pct(s.p[2], 1)}).
+      El marcador que más salió fue ${ma}-${mb} (${pct(mp, 1)}). En promedio, ${esc(nl)} anotó ${s.goles[0].toFixed(2)} y ${esc(nv)} ${s.goles[1].toFixed(2)}.</li>
+    <li><b>Qué significan el ± y el rango.</b> "± ${(100 * ee).toFixed(1)}" en la victoria de ${esc(nl)}: si se repitiera la simulación con otros números al azar, el resultado quedaría casi siempre entre ${pct(s.p[0] - ee, 1)} y ${pct(s.p[0] + ee, 1)}; es el error de la simulación y es pequeño.
+      "Rango 90%: ${pct(s.int90[0][0])}–${pct(s.int90[0][1])}": dependiendo de qué tan fuertes sean realmente los equipos, la probabilidad verdadera de que gane ${esc(nl)} podría estar en cualquier punto de ese rango. Esa es la incertidumbre del modelo, no de la simulación.</li>
+    <li><b>Comparación con la fórmula.</b> Sin incertidumbre, la fórmula exacta con los goles esperados del paso 2 da ${pct(A[0], 1)} / ${pct(A[1], 1)} / ${pct(A[2], 1)}, y la simulación ${pct(s.p[0], 1)} / ${pct(s.p[1], 1)} / ${pct(s.p[2], 1)}.
+      La diferencia en el empate (${(100 * (s.p[1] - A[1])).toFixed(1)} puntos) viene de mezclar escenarios: cuando hay dudas sobre las fuerzas, los partidos desiguales se vuelven algo más probables y los empates algo menos.</li></ol>
+    <p>No incluye lesiones ni alineaciones. Detalle técnico en METODOLOGIA_SIMULACIONES.md.</p></details>`;
+}
+function simHtml(s, nl, nv, L) {
   const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`];
   return `<div class="grid2">
     <div style="display:grid;gap:10px;align-content:start">
@@ -402,8 +437,7 @@ function simHtml(s, nl, nv) {
       <table class="mk"><thead><tr><th>Marcador</th><th class="n">Prob.</th><th class="n">Cuota justa</th></tr></thead><tbody>
         ${s.marcadores.map(([a, b, p]) => `<tr><td>${esc(nl)} <b class="mono">${a}–${b}</b> ${esc(nv)}</td><td class="n">${pct(p, 1)}</td><td class="n">${f2(1 / p)}</td></tr>`).join("")}
       </tbody></table></div></div>
-    <details class="small"><summary>Cómo se calculó</summary>
-      <p>${s.n.toLocaleString("es-MX")} partidos simulados. 1) Se estimó el modelo Dixon-Coles con todos los resultados (los recientes pesan más). 2) La incertidumbre de las fuerzas de ataque, defensa, localía y ρ se aproximó con la inversa del Hessiano de la verosimilitud penalizada, y de esa normal se sacaron ${s.juegos.toLocaleString("es-MX")} juegos de parámetros. 3) Con cada juego se calcularon los goles esperados de los dos equipos y se simularon 10 marcadores de la matriz Poisson con la corrección Dixon-Coles para marcadores bajos. 4) Los porcentajes son la frecuencia de cada resultado. "± error" es el error de muestreo de la simulación (95%); "Rango 90%" muestra cuánto cambia la probabilidad según la incertidumbre de los parámetros. "Fórmula" es el cálculo exacto sin incertidumbre: la simulación suele dar algo menos de empates, porque la incertidumbre hace más probables los partidos desiguales. No incluye lesiones ni alineaciones; ver METODOLOGIA_SIMULACIONES.md.</p></details>`;
+    ${explicacion(s, nl, nv, L)}`;
 }
 
 function temporada(el, L) {
@@ -413,13 +447,23 @@ function temporada(el, L) {
   const mini = d => { const mx = Math.max(...d); return `<svg viewBox="0 0 ${E * 4} 16" width="${E * 4}" height="16" aria-hidden="true">${d.map((p, i) => `<rect x="${i * 4}" y="${16 - 16 * p / mx}" width="3" height="${16 * p / mx}" fill="var(--turf)"/>`).join("")}</svg>` };
   const actual = [...T.tabla].sort((a, b) => b.pts - a.pts);
   const p = x => x == null ? "–" : x < 0.001 && x > 0 ? "<0.1%" : pct(x, 1);
+  const esCopa = liga === "ucl" || liga === "uel", nDesc = esCopa ? "Eliminado (25–36)" : "Descenso";
+  const lider = T.tabla[0];
   el.innerHTML = `<div class="panel" style="display:grid;gap:12px">
     <p class="small" style="margin:0">${T.temporadas.toLocaleString("es-MX")} temporadas simuladas con los ${T.pendientes} partidos que faltan${liga === "ligamx" ? " de la fase regular (sin liguilla)" : ""}. Cada temporada usa un juego distinto de parámetros del modelo y se suma a la tabla actual; empates en puntos se resuelven por diferencia de goles, goles a favor y sorteo.</p>
-    <div class="scroll"><table><thead><tr><th class="n">Hoy</th><th>Equipo</th><th class="n">PJ</th><th class="n">Pts</th><th class="n">Pts finales esperados</th><th class="n">Rango 90%</th><th class="n">${esc(T.etiqueta1)}</th><th class="n">${esc(T.etiqueta_arriba)}</th>${T.n_desc ? `<th class="n">Descenso</th>` : ""}<th class="n">Posición media</th><th>Posiciones (1 → ${E})</th></tr></thead><tbody>
+    <div class="scroll"><table><thead><tr><th class="n">Hoy</th><th>Equipo</th><th class="n">PJ</th><th class="n">Pts</th><th class="n">Pts finales esperados</th><th class="n">Rango 90%</th><th class="n">${esc(T.etiqueta1)}</th><th class="n">${esc(T.etiqueta_arriba)}</th>${esCopa ? `<th class="n">9–24 (playoff)</th>` : ""}${T.n_desc ? `<th class="n">${nDesc}</th>` : ""}<th class="n">Posición media</th><th>Posiciones (1 → ${E})</th></tr></thead><tbody>
       ${T.tabla.map(r => `<tr><td class="n">${actual.indexOf(r) + 1}</td><td>${esc(r.equipo)}</td><td class="n">${r.pj}</td><td class="n">${r.pts}</td><td class="n"><b>${r.pts_esp.toFixed(1)}</b></td><td class="n">${r.pts_p5_p95[0]}–${r.pts_p5_p95[1]}</td>
-        <td class="n">${p(r.p1)}</td><td class="n">${p(r.parriba)}</td>${T.n_desc ? `<td class="n">${p(r.pdesc)}</td>` : ""}<td class="n">${r.pos_media.toFixed(1)}</td><td>${mini(r.pos_dist)}</td></tr>`).join("")}
+        <td class="n">${p(r.p1)}</td><td class="n">${p(r.parriba)}</td>${esCopa ? `<td class="n">${p(Math.max(0, 1 - r.parriba - r.pdesc))}</td>` : ""}${T.n_desc ? `<td class="n">${p(r.pdesc)}</td>` : ""}<td class="n">${r.pos_media.toFixed(1)}</td><td>${mini(r.pos_dist)}</td></tr>`).join("")}
     </tbody></table></div>
-    <p class="small" style="margin:0">Ordenado por puntos finales esperados. "Rango 90%": en 9 de cada 10 temporadas simuladas el equipo termina con puntos dentro de ese rango. La barrita muestra con qué frecuencia termina en cada posición. ${T.n_desc ? `Descenso = últimos ${T.n_desc} lugares directos.` : ""}</p></div>`;
+    <p class="small" style="margin:0">Ordenado por puntos finales esperados. "Rango 90%": en 9 de cada 10 temporadas simuladas el equipo termina con puntos dentro de ese rango. La barrita muestra con qué frecuencia termina en cada posición. ${T.n_desc && !esCopa ? `Descenso = últimos ${T.n_desc} lugares directos.` : ""}</p>
+    <details class="small"><summary>¿Cómo se calculó?</summary><ol class="pasos">
+      <li><b>Punto de partida.</b> La tabla actual: puntos, diferencia de goles y goles a favor de lo ya jugado${esCopa ? " en la fase de liga" : ""}.</li>
+      <li><b>Partidos que faltan.</b> ${T.pendientes} partidos${esCopa ? ", tomados del calendario publicado por ESPN" : liga === "ligamx" ? " de la fase regular; si la localía aún no está publicada, se sortea" : ", todos los cruces de local y visita que todavía no se juegan"}.</li>
+      <li><b>Una temporada simulada.</b> Se toma un juego de fuerzas de los equipos (incluyendo su incertidumbre) y cada partido pendiente se resuelve sorteando un marcador con el mismo modelo que la pestaña Próximos. Se suman puntos y goles y se ordena la tabla por puntos, diferencia de goles, goles a favor y, si siguen empatados, por sorteo.</li>
+      <li><b>Repetición.</b> Eso se repite ${T.temporadas.toLocaleString("es-MX")} veces (1,000 juegos de fuerzas × 10 temporadas cada uno).</li>
+      <li><b>Conteo.</b> Cada porcentaje es la fracción de temporadas en que pasó. Por ejemplo, ${esc(lider.equipo)} terminó 1º en ${Math.round(lider.p1 * T.temporadas).toLocaleString("es-MX")} de ${T.temporadas.toLocaleString("es-MX")} temporadas (${pct(lider.p1, 1)}) y en promedio sumó ${lider.pts_esp.toFixed(1)} puntos; en 9 de cada 10 temporadas terminó con entre ${lider.pts_p5_p95[0]} y ${lider.pts_p5_p95[1]}.</li>
+      <li><b>Error de simulación.</b> Con ${T.temporadas.toLocaleString("es-MX")} temporadas, un porcentaje cercano a 50% tiene un error de ±1 punto aproximadamente; los cercanos a 0% o 100% tienen un error menor.</li></ol>
+      <p>No incluye fichajes, cambios de entrenador ni lesiones futuras${esCopa ? ", ni los desempates oficiales de la UEFA (se usan puntos, diferencia y goles)" : ""}.</p></details></div>`;
 }
 
 function fiab(el, B) {
@@ -436,7 +480,9 @@ function fiab(el, B) {
   const mejora = 1 - b.logloss / b.logloss_base;
   el.innerHTML = `<div class="grid2"><div class="panel" style="display:grid;gap:12px">
       <h3>Prueba fuera de muestra</h3>
-      <p class="small" style="margin:0">Cada semana se reajusta el modelo solo con partidos anteriores y se pronostica la semana siguiente. Cubre la temporada pasada completa y lo que va de esta: ${b.n} partidos.</p>
+      <p class="small" style="margin:0">${liga === "ucl" || liga === "uel"
+        ? `El modelo se ajustó solo con partidos europeos de la temporada pasada y se usó para pronosticar los ${b.n} partidos ya jugados de esta. Las fuerzas domésticas usadas son las actuales, lo que favorece un poco al modelo.`
+        : `Cada semana se reajusta el modelo solo con partidos anteriores y se pronostica la semana siguiente. Cubre la temporada pasada completa y lo que va de esta: ${b.n} partidos.`}</p>
       <table><tbody>
         <tr><td>Log-loss modelo (menor es mejor)</td><td class="n">${b.logloss.toFixed(3)}</td></tr>
         <tr><td>Log-loss solo frecuencias históricas</td><td class="n">${b.logloss_base.toFixed(3)}</td></tr>
@@ -449,6 +495,77 @@ function fiab(el, B) {
     </div>
     <div class="panel" style="display:grid;gap:8px"><h3>Calibración</h3>${svg}
       <p class="small" style="margin:0">Si el modelo dice 40%, el resultado debería ocurrir cerca de 40% de las veces. Los puntos sobre la diagonal punteada indican buena calibración; el tamaño refleja cuántos casos hay.</p></div></div>`;
+}
+
+// ---------- en vivo: marcadores de ESPN consultados desde el navegador (ESPN permite CORS, funciona con file://)
+const VIVO = [["ligamx", "mex.1"], ["laliga", "esp.1"], ["premier", "eng.1"], ["ligue1", "fra.1"], ["seriea", "ita.1"],
+  ["eredivisie", "ned.1"], ["ucl", "uefa.champions"], ["uel", "uefa.europa"]];
+function poisAzar(l) { let k = 0, p = 1; const L = Math.exp(-l); do { k++; p *= Math.random() } while (p > L); return k - 1 }
+// probabilidad en vivo: a los goles que ya hay se suman goles Poisson con λ × (minutos restantes / 90), 10,000 veces
+function probVivo(lm, ga, gb, minuto) {
+  const r = Math.max(0, 90 - minuto) / 90, N = 10000; let h = 0, d = 0;
+  for (let i = 0; i < N; i++) { const a = ga + poisAzar(lm[0] * r), b = gb + poisAzar(lm[1] * r); if (a > b) h++; else if (a === b) d++ }
+  return [h / N, d / N, 1 - (h + d) / N];
+}
+function minutoDe(st) {
+  if (/HT|half/i.test(st.type.shortDetail || "")) return 45;
+  const m = String(st.displayClock || "").match(/^(\d+)'?(?:\+(\d+))?/);
+  return m ? +m[1] + (+m[2] || 0) : Math.floor((st.clock || 0) / 60);
+}
+function barra(p) { return `<div class="bar">${p.map((x, i) => `<div class="${["b1", "bx", "b2"][i]}" style="width:${100 * x}%">${pct(x)}</div>`).join("")}</div>` }
+function vivoVista(v) {
+  v.innerHTML = `<div style="display:grid;gap:14px"><div class="meta"><span>Marcadores de ESPN; se actualizan solos cada 60 segundos</span><span id="vivo-hora">Consultando…</span></div>
+    <div id="vivo" style="display:grid;gap:16px"></div>
+    <p class="small" style="margin:0">Probabilidad en vivo: a los goles que ya hay se suman goles al azar con la tasa del modelo proporcional a los minutos que faltan (Poisson con λ × minutos restantes / 90), 10,000 simulaciones. No considera expulsiones ni el tiempo añadido; es una guía, no una cuota.</p></div>`;
+  const carga = async () => {
+    const man = new Date(Date.now() + 864e5), dia = `${man.getFullYear()}${String(man.getMonth() + 1).padStart(2, "0")}${String(man.getDate()).padStart(2, "0")}`;
+    const res = await Promise.all(VIVO.map(async ([k, c]) => {
+      try {   // hoy (marcador por defecto) y mañana, sin repetir partidos
+        const js = await Promise.all(["", "?dates=" + dia].map(q => fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${c}/scoreboard${q}`).then(r => r.json())));
+        const vistos = new Map(); js.forEach(j => (j.events || []).forEach(ev => vistos.set(ev.id, ev)));
+        return [k, [...vistos.values()]] }
+      catch { return [k, null] } }));
+    if (liga !== "vivo" || !$("#vivo")) return;
+    pintaVivo(res);
+    $("#vivo-hora").textContent = "Última consulta: " + new Date().toLocaleTimeString("es-MX");
+  };
+  carga(); vivoTimer = setInterval(carga, 60000);
+}
+function pintaVivo(res) {
+  const ahora = Date.now(), grupos = { in: [], pre: [], post: [] };
+  let fallas = 0;
+  res.forEach(([k, evs]) => { if (!evs) { fallas++; return }
+    evs.forEach(ev => { const st = ev.status.type.state, t = new Date(ev.date).getTime();
+      if (st === "pre" && t - ahora > 36 * 36e5) return;
+      if (st === "post" && ahora - t > 30 * 36e5) return;
+      (grupos[st] || grupos.post).push([k, ev]) }) });
+  const fila = ([k, ev]) => {
+    const c = ev.competitions[0], eq = Object.fromEntries(c.competitors.map(x => [x.homeAway, x])), h = eq.home, a = eq.away;
+    const st = ev.status, est = st.type.state, L = D.ligas[k], nombreComp = ORDEN.find(o => o[0] === k)[1];
+    const modelo = n => (L && L.espn && L.espn[n]) || n, nh = modelo(h.team.displayName), na = modelo(a.team.displayName);
+    const lm = L && L.modelo.equipos[nh] && L.modelo.equipos[na] ? lambdasLiga(L, nh, na) : null;
+    const pre = lm ? mercados(matriz(...lm)) : null, gh = +h.score || 0, ga = +a.score || 0;
+    const goles = id => (c.details || []).filter(d => d.scoringPlay && d.team && d.team.id === id)
+      .map(d => `${esc((d.athletesInvolved && d.athletesInvolved[0] && d.athletesInvolved[0].displayName) || "Gol")} ${esc((d.clock && d.clock.displayValue) || "")}${d.ownGoal ? " (a.g.)" : d.penaltyKick ? " (pen.)" : ""}`).join(", ");
+    const hora = new Date(ev.date).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+    const cuando = est === "in" ? `<span class="min">${esc(st.type.shortDetail === "HT" ? "Medio tiempo" : st.displayClock)}</span>` : est === "pre" ? hora : "Final";
+    let probs = '<span class="small">Sin modelo para este partido</span>';
+    if (pre) {
+      const pp = [pre.h, pre.d, pre.a];
+      probs = est === "in" ? `<div class="small">En vivo (${minutoDe(st)}')</div>${barra(probVivo(lm, gh, ga, minutoDe(st)))}<div class="small">Antes del partido: ${pp.map(x => pct(x)).join(" / ")}</div>`
+        : `<div class="small">${est === "pre" ? "Probabilidad del modelo" : "Probabilidad del modelo con los datos actuales"}</div>${barra(pp)}`;
+    }
+    return `<div class="vv"><div class="when"><div class="small">${esc(nombreComp)}</div>${cuando}</div>
+      <div class="teams" style="display:grid;gap:2px;min-width:0">
+        <div><b>${esc(h.team.displayName)}</b> <span class="marc">${est === "pre" ? "" : gh}</span></div>${goles(h.team.id) ? `<div class="gol">⚽ ${goles(h.team.id)}</div>` : ""}
+        <div><b>${esc(a.team.displayName)}</b> <span class="marc">${est === "pre" ? "" : ga}</span></div>${goles(a.team.id) ? `<div class="gol">⚽ ${goles(a.team.id)}</div>` : ""}
+        <span class="acciones">${google(h.team.displayName, a.team.displayName)}</span></div>
+      <div>${probs}</div></div>`;
+  };
+  const seccion = (t, l) => l.length ? `<div class="panel"><h3 style="margin-bottom:6px">${t} (${l.length})</h3>${l.sort((x, y) => new Date(x[1].date) - new Date(y[1].date)).map(fila).join("")}</div>` : "";
+  $("#vivo").innerHTML = seccion("En juego", grupos.in) + seccion("Por empezar (próximas 36 horas)", grupos.pre) + seccion("Terminados (últimas 30 horas)", grupos.post)
+    || `<div class="panel empty"><p>No hay partidos en juego ni programados en las próximas 36 horas.</p></div>`;
+  if (fallas) $("#vivo").insertAdjacentHTML("beforeend", `<p class="small">${fallas} competiciones no respondieron en esta consulta; se reintenta en 60 segundos.</p>`);
 }
 
 // ---------- copas
@@ -488,8 +605,7 @@ function jugadoresVista(el, nombre) {
   const J = jugadoresDe(liga);
   if (!J) {
     el.innerHTML = `<div class="panel empty"><h2>Jugadores de ${esc(nombre)}: sin datos en esta versión</h2>
-      <p>Las plantillas, estadísticas por jugador y noticias vienen de ESPN; las lesiones, de Transfermarkt y, en la Premier, del parte oficial de Fantasy Premier League. Ninguno de esos sitios fue accesible desde donde se generó esta versión.</p>
-      <p>En tu computadora: <code>pip install pandas numpy scipy requests lxml</code> y luego <code>python actualizar_datos.py</code>. Tarda unos minutos más porque descarga la plantilla de cada equipo.</p></div>`;
+      <p>Las plantillas, estadísticas por jugador y noticias vienen de ESPN; las lesiones, de Transfermarkt y, en la Premier, del parte oficial de Fantasy Premier League. Esos sitios no respondieron en la última actualización; se reintentará en la próxima.</p></div>`;
     return;
   }
   const eqs = [...J.equipos].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
