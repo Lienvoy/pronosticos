@@ -1,6 +1,6 @@
 # Tablero de Probabilidades
 
-Página personal para ver estadísticas de partidos y estimar probabilidades en Liga MX, LaLiga, Premier League, Ligue 1, Serie A, Eredivisie, Champions League y Europa League, y compararlas con las cuotas de tu casa de apuestas.
+Página personal para ver estadísticas de partidos y estimar probabilidades en Liga MX, LaLiga, Premier League, Ligue 1, Serie A, Eredivisie, Bundesliga, Champions League y Europa League, y compararlas con las cuotas de tu casa de apuestas.
 
 ## Cómo usarla
 

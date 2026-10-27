@@ -155,7 +155,7 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 <script>
 (() => {
 const D = window.DATOS || { ligas: {}, copas: {} };
-const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["ucl","Champions"],["uel","Europa League"],["vivo","● En vivo"]];
+const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["vivo","● En vivo"]];
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
@@ -523,7 +523,7 @@ function fiab(el, B) {
 
 // ---------- en vivo: marcadores de ESPN consultados desde el navegador (ESPN permite CORS, funciona con file://)
 const VIVO = [["ligamx", "mex.1"], ["laliga", "esp.1"], ["premier", "eng.1"], ["ligue1", "fra.1"], ["seriea", "ita.1"],
-  ["eredivisie", "ned.1"], ["ucl", "uefa.champions"], ["uel", "uefa.europa"]];
+  ["eredivisie", "ned.1"], ["bundesliga", "ger.1"], ["ucl", "uefa.champions"], ["uel", "uefa.europa"]];
 function poisAzar(l) { let k = 0, p = 1; const L = Math.exp(-l); do { k++; p *= Math.random() } while (p > L); return k - 1 }
 // probabilidad en vivo: a los goles que ya hay se suman goles Poisson con λ × (minutos restantes / 90), 10,000 veces
 function probVivo(lm, ga, gb, minuto) {

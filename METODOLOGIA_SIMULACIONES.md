@@ -66,7 +66,7 @@ Para cada partido se reporta:
    - Puntos finales esperados y su rango del 90%.
    - Probabilidad de quedar 1º.
    - Probabilidad de zona alta: top 4 en Europa; top 6, es decir liguilla directa, en Liga MX.
-   - Probabilidad de descenso: últimos 3 en Premier, LaLiga y Serie A; últimos 2 directos en Ligue 1 y Eredivisie; Liga MX no tiene descenso.
+   - Probabilidad de descenso: últimos 3 en Premier, LaLiga y Serie A; últimos 2 directos en Ligue 1, Eredivisie y Bundesliga (el 16º de la Bundesliga juega una promoción que no se simula); Liga MX no tiene descenso.
    - Posición media y la distribución completa de posiciones.
 
 No se simulan la liguilla, el repechaje ni los desempates oficiales específicos de cada liga, como el enfrentamiento directo.

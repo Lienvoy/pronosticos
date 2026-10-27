@@ -23,6 +23,7 @@ COMPETICIONES = {
     "seriea": ("ita.1", "IT1"),
     "ligue1": ("fra.1", "FR1"),
     "eredivisie": ("ned.1", "NL1"),
+    "bundesliga": ("ger.1", "L1"),
     "ligamx": ("mex.1", "MEX1"),
     "ucl": ("uefa.champions", None),
     "uel": ("uefa.europa", None),

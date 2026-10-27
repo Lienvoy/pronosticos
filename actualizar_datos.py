@@ -43,10 +43,11 @@ LIGAS = {
     # Si "League 1" era la EFL League One inglesa, descomenta esta línea:
     # "leagueone": ("EFL League One", "E2",  "en.3"),
     "eredivisie": ("Eredivisie",     "N1",  "nl.1"),
+    "bundesliga": ("Bundesliga",     "D1",  "de.1"),
     "ligamx":     ("Liga MX",        "MEX", None),
 }
 COPAS = {"ucl": "Champions League", "uel": "Europa League"}
-PAIS_ELO = {"premier": "ENG", "laliga": "ESP", "seriea": "ITA", "ligue1": "FRA", "eredivisie": "NED"}
+PAIS_ELO = {"premier": "ENG", "laliga": "ESP", "seriea": "ITA", "ligue1": "FRA", "eredivisie": "NED", "bundesliga": "GER"}
 
 XI = 0.005            # decaimiento temporal por día (vida media ≈ 140 días)
 RIDGE = 0.6           # regularización de fuerzas de ataque/defensa
@@ -171,7 +172,7 @@ def carga_openfootball(codigo):
 # Con ESPN completamos los partidos recientes que football-data aún no publica y el calendario próximo.
 ESPN_SB = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 ESPN_LIGA = {"premier": "eng.1", "laliga": "esp.1", "seriea": "ita.1", "ligue1": "fra.1",
-             "eredivisie": "ned.1", "ligamx": "mex.1"}
+             "eredivisie": "ned.1", "ligamx": "mex.1", "bundesliga": "ger.1"}
 MAPAS, MODELOS = {}, {}   # nombre ESPN -> football-data y modelo ajustado de cada liga (para las copas)
 EVENTOS_ESPN = {}         # partidos de ESPN por liga (con ids de equipo y de partido)
 PENDIENTES_SIM = []       # partidos próximos: se simulan al final, cuando ya se conocen las alineaciones
@@ -492,7 +493,7 @@ SEMILLA = 20261025
 ZONAS = {   # clave: (etiqueta del 1º, plazas de arriba, etiqueta, plazas de descenso, ida y vuelta)
     "premier": ("Campeón", 4, "Top 4", 3, True), "laliga": ("Campeón", 4, "Top 4", 3, True),
     "seriea": ("Campeón", 4, "Top 4", 3, True), "ligue1": ("Campeón", 4, "Top 4", 2, True),
-    "eredivisie": ("Campeón", 4, "Top 4", 2, True), "ligamx": ("Superlíder", 6, "Liguilla directa (top 6)", 0, False),
+    "eredivisie": ("Campeón", 4, "Top 4", 2, True), "bundesliga": ("Campeón", 4, "Top 4", 2, True), "ligamx": ("Superlíder", 6, "Liguilla directa (top 6)", 0, False),
     # copas: fase de liga de 36 equipos; 1-8 a octavos, 9-24 a playoff, 25-36 eliminados
     "ucl": ("1º de la fase", 8, "Top 8 (octavos directos)", 12, True),
     "uel": ("1º de la fase", 8, "Top 8 (octavos directos)", 12, True),
@@ -715,7 +716,7 @@ def partidos_europeos():
 
 
 ESPN_EQUIPOS = {}         # liga -> {id ESPN: nombre ESPN}
-TM_LIGA = {"premier": "GB1", "laliga": "ES1", "seriea": "IT1", "ligue1": "FR1", "eredivisie": "NL1", "ligamx": "MEX1"}
+TM_LIGA = {"premier": "GB1", "laliga": "ES1", "seriea": "IT1", "ligue1": "FR1", "eredivisie": "NL1", "ligamx": "MEX1", "bundesliga": "L1"}
 CACHE_V = {}              # caché de valores.py (Transfermarkt y alineaciones)
 COPA_MOD = {}             # modelo de cada copa en formato de liga (para estimar el efecto de la alineación)
 LESIONES = {}             # id ESPN del equipo -> nombres normalizados de lesionados/suspendidos
