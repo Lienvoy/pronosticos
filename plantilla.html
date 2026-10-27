@@ -112,6 +112,8 @@ td .simbtn { margin: 0; padding: 1px 8px; font-size: 12px }
 ol.pasos { display: grid; gap: 8px; padding-left: 20px; max-width: 95ch } ol.pasos b { color: var(--ink) }
 .vv { display: grid; grid-template-columns: 110px minmax(0,1fr) minmax(220px, 300px); gap: 8px 18px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line) }
 .vv:last-child { border-bottom: 0 }
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start }
+.tarjeta { display: grid; gap: 10px; align-content: start } .tarjeta h3 { margin-top: 4px }
 .vv .when { font: 12px var(--f-mono); color: var(--muted) }
 .vv .marc { font: 600 22px var(--f-display); letter-spacing: .03em }
 .vv .min { font: 600 13px var(--f-mono); color: var(--red) }
@@ -155,7 +157,8 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 <script>
 (() => {
 const D = window.DATOS || { ligas: {}, copas: {} };
-const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["vivo","● En vivo"],["apuestas","Mis apuestas"]];
+const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["equipos","★ Mis equipos"],["vivo","● En vivo"],["pick","Pick del finde"],["apuestas","Mis apuestas"]];
+const GLOBALES = { equipos: v => equiposVista(v), vivo: v => vivoVista(v), pick: v => pickVista(v), apuestas: v => apuestasVista(v) };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
@@ -220,7 +223,7 @@ if (!ORDEN.some(o => o[0] === liga)) liga = (ORDEN.find(o => D.ligas[o[0]]) || O
 
 function chips() {
   $("#ligas").innerHTML = ORDEN.map(([k, n]) => {
-    const ok = k === "vivo" || k === "apuestas" || D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
+    const ok = GLOBALES[k] || D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
     return `<button class="chip" data-k="${k}" aria-pressed="${k === liga}">${n}${ok ? "" : '<span class="dot" title="Sin datos en esta versión"></span>'}</button>` }).join("");
   $("#ligas").querySelectorAll(".chip").forEach(b => b.onclick = () => { liga = b.dataset.k; store.set("liga", liga); render() });
 }
@@ -228,8 +231,7 @@ function chips() {
 function render() {
   chips();
   clearInterval(vivoTimer);
-  if (liga === "vivo") return vivoVista($("#vista"));
-  if (liga === "apuestas") return apuestasVista($("#vista"));
+  if (GLOBALES[liga]) return GLOBALES[liga]($("#vista"));
   // las copas usan el modelo propio (mismas pestañas que una liga); si no lo hay, la calculadora Elo de ClubElo
   const esCopa = liga === "ucl" || liga === "uel", L = D.ligas[liga], copa = esCopa && !L, v = $("#vista");
   const nombre = ORDEN.find(o => o[0] === liga)[1];
@@ -264,8 +266,8 @@ function vacio(nombre) {
 // ---------- vistas de liga
 const google = (a, b, corto) => `<a class="btn simbtn" href="https://www.google.com/search?q=${encodeURIComponent(a + " vs " + b)}" target="_blank" rel="noopener">${corto ? "Google" : "Ver en Google"}</a>`;
 // combinación logarítmica modelo + mercado: p ∝ p_modelo^α · p_mercado^(1−α); α se eligió fuera de muestra
-function combinado(p, r) {
-  const L = D.ligas[liga], a = L && L.mezcla ? L.mezcla.alpha : 1, mk = mercado(r);
+function combinado(p, r, L = D.ligas[liga]) {
+  const a = L && L.mezcla ? L.mezcla.alpha : 1, mk = mercado(r);
   if (!mk || a >= 1) return null;
   const q = p.map((x, i) => Math.pow(Math.max(x, 1e-6), a) * Math.pow(mk[i], 1 - a)), t = q.reduce((s, v) => s + v, 0);
   return q.map(v => v / t);
@@ -426,7 +428,7 @@ function explicacion(s, nl, nv, L, r = {}) {
   const base = e(m.mu), loc = e(m.home), lam = base * e(al) * e(dv) * loc, mu2 = base * e(av) * e(dl);
   const n = s.n.toLocaleString("es-MX"), veces = p => Math.round(p * s.n).toLocaleString("es-MX");
   const [ma, mb, mp] = s.marcadores[0], ee = s.ee[0] * 1.96, A = s.analitica;
-  const xi = r.xi || {}, mx = xi.mult || [1, 1], lmF = s.lm || [lam, mu2], esCopa = liga === "ucl" || liga === "uel";
+  const xi = r.xi || {}, mx = xi.mult || [1, 1], lmF = s.lm || [lam, mu2], esCopa = /Champions|Europa/.test(L.nombre || "");
   return `<details class="small"><summary>¿Cómo se calculó? (paso a paso con los números de este partido)</summary><ol class="pasos">
     <li><b>Fuerzas del modelo.</b> La escala parte de un equipo de referencia: uno promedio de la competición contra otro promedio, sin localía, anota ${f(base)} goles. Eso es solo el punto de partida; a cada equipo se le aplica su propia fuerza.
       ${esc(nl)}: ataque ${mult(al)}, defensa ${mult(dl)}. ${esc(nv)}: ataque ${mult(av)}, defensa ${mult(dv)}. Un ataque ×1.50 anota 50% más que el equipo de referencia; una defensa ×0.80 recibe 20% menos. Jugar de local multiplica los goles por ${f(loc)}.
@@ -455,7 +457,7 @@ function mercado(r) {
   return imp.map(x => x / t);
 }
 function simHtml(s, nl, nv, L, r = {}) {
-  const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`], mk = mercado(r), pc = combinado(s.p, r);
+  const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`], mk = mercado(r), pc = combinado(s.p, r, L);
   const dif = mk ? Math.max(...s.p.map((p, i) => Math.abs(p - mk[i]))) : 0;
   return `${mk && dif > 0.15 ? `<p class="warn"><b>Revisa antes de apostar:</b> el modelo difiere ${(100 * dif).toFixed(0)} puntos del mercado. Las casas tienen información que el modelo no ve (alineaciones confirmadas, lesiones de último momento, motivación); una diferencia así suele indicar un hueco del modelo más que una oportunidad.</p>` : ""}
     <div class="grid2">
@@ -604,6 +606,134 @@ function pintaVivo(res) {
   if (fallas) $("#vivo").insertAdjacentHTML("beforeend", `<p class="small">${fallas} competiciones no respondieron en esta consulta; se reintenta en 60 segundos.</p>`);
 }
 
+// ---------- Mis equipos
+const COMPS = () => ORDEN.filter(([k]) => D.ligas[k]);
+function probsFila(r, L) {
+  const pm = r.sim ? r.sim.p : (k => [k.h, k.d, k.a])(mercados(matriz(...lambdasLiga(L, r.local, r.visita))));
+  return { pm, pc: combinado(pm, r, L), mk: mercado(r) };
+}
+const fechaCorta = f => f.slice(5).split("-").reverse().join("/");
+function tarjetaEquipo(k, n, idx) {
+  const L = D.ligas[k], comp = ORDEN.find(o => o[0] === k)[1], J = jugadoresDe(k), e = J ? equipoESPN(n, J) : null;
+  const prox = L.proximos.find(r => r.local === n || r.visita === n);
+  const ult = L.recientes.filter(r => r.local === n || r.visita === n).slice(0, 5);
+  const pos = L.tabla.findIndex(r => r.equipo === n), t = L.tabla[pos], T = L.temporada_sim, s = T && T.tabla.find(r => r.equipo === n);
+  const coef = L.backtest && L.backtest.xg && L.backtest.xg.coef;
+  const xg = t && coef && t.tiros != null ? coef[0] * t.arco + coef[1] * (t.tiros - t.arco) : null;
+  const bajas = bajasEquipo(n, k), goleadores = e ? J.jugadores.filter(j => j.equipo_id === e.id && j.goles).sort((a, b) => b.goles - a.goles).slice(0, 3) : [];
+  const news = e ? J.noticias.filter(x => x.equipos.includes(e.id)).slice(0, 3) : [];
+  let proxHtml = '<p class="small" style="margin:0">Sin partido próximo en la fuente.</p>';
+  if (prox) {
+    const { pm, pc } = probsFila(prox, L), p = pc || pm, loc = prox.local === n;
+    proxHtml = `<div><b>${loc ? "vs" : "en casa de"} ${esc(loc ? prox.visita : prox.local)}</b> <span class="small mono">${fechaCorta(prox.fecha)}</span></div>
+      ${barra(p)}<div class="small">${esc(prox.local)} · empate · ${esc(prox.visita)}${pc ? " (modelo + mercado)" : " (modelo)"}</div>
+      ${prox.sim ? `<button class="btn simbtn" data-te="${idx}">Simulación</button><div class="simbox" id="te-${idx}" hidden></div>` : ""}`;
+  }
+  return `<div class="panel tarjeta"><div style="display:flex;justify-content:space-between;gap:8px;align-items:start">
+      <div><h2>${esc(n)}</h2><span class="small">${esc(comp)}${t ? ` · ${pos + 1}º con ${t.pts} pts en ${t.pj} PJ` : ""}</span></div>
+      <button class="btn simbtn" data-quita="${idx}" aria-label="Quitar ${esc(n)}">Quitar</button></div>
+    <h3>Próximo partido</h3>${proxHtml}
+    <h3>Últimos resultados</h3><div style="display:grid;gap:2px">${ult.map(r => { const loc = r.local === n, a = loc ? r.gl : r.gv, b = loc ? r.gv : r.gl, c = a > b ? "G" : a === b ? "E" : "P";
+      return `<div class="form small"><span class="${c}">${c}</span> ${a}-${b} ${loc ? "vs" : "en"} ${esc(loc ? r.visita : r.local)} <span class="mono">${fechaCorta(r.fecha)}</span></div>` }).join("") || '<span class="small">Sin resultados esta temporada.</span>'}</div>
+    ${t ? `<h3>Números de la temporada</h3><div class="meta"><span>GF ${t.gf} · GC ${t.gc}</span><span>Forma ${esc(t.forma)}</span>${t.tiros != null ? `<span>Tiros ${f2(t.tiros)} (a puerta ${f2(t.arco)})</span>` : ""}${xg != null ? `<span>xG aprox. ${f2(xg)}/partido</span>` : ""}<span>+2.5: ${pct(t.over25)}</span></div>` : ""}
+    ${s ? `<h3>Proyección</h3><div class="meta"><span>Puntos esperados ${s.pts_esp.toFixed(1)} (${s.pts_p5_p95[0]}–${s.pts_p5_p95[1]})</span><span>${esc(T.etiqueta1)} ${pct(s.p1, 1)}</span><span>${esc(T.etiqueta_arriba)} ${pct(s.parriba, 1)}</span>${T.n_desc ? `<span>${/Champions|Europa/.test(L.nombre) ? "Eliminado" : "Descenso"} ${pct(s.pdesc, 1)}</span>` : ""}</div>` : ""}
+    ${goleadores.length ? `<h3>Goleadores</h3><div class="meta">${goleadores.map(j => `<span>${esc(j.nombre)} ${j.goles}${j.asist ? ` (+${j.asist} asist.)` : ""}</span>`).join("")}</div>` : ""}
+    ${bajas.length ? `<h3>Bajas</h3><div style="display:grid;gap:2px">${bajas.slice(0, 6).map(j => `<div class="small">${estadoHtml(j.lesion)} ${esc(j.nombre)}${j.lesion.detalle ? ` · ${esc(j.lesion.detalle)}` : ""}</div>`).join("")}</div>` : ""}
+    ${news.length ? `<h3>Noticias</h3><div class="news">${news.map(noticia).join("")}</div>` : ""}
+  </div>`;
+}
+function equiposVista(v) {
+  const comps = COMPS();
+  v.innerHTML = `<div style="display:grid;gap:16px">
+    <div class="panel calc-top">
+      <label for="qc" style="flex:0 1 180px">Competición<select id="qc">${comps.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
+      <label for="qe">Equipo<select id="qe"></select></label>
+      <button class="btn" id="qadd" style="align-self:end">Agregar a mis equipos</button></div>
+    <div id="tarjetas" class="tarjetas"></div></div>`;
+  const llena = () => { const L = D.ligas[$("#qc").value];
+    $("#qe").innerHTML = Object.keys(L.modelo.equipos).sort((a, b) => a.localeCompare(b, "es")).map(e => `<option>${esc(e)}</option>`).join("") };
+  $("#qc").onchange = llena; llena();
+  $("#qadd").onclick = () => { const m = store.get("equipos", []), par = [$("#qc").value, $("#qe").value];
+    if (!m.some(x => x[0] === par[0] && x[1] === par[1])) { m.push(par); store.set("equipos", m) } pinta() };
+  function pinta() {
+    const mios = store.get("equipos", []).filter(([k, n]) => D.ligas[k]);
+    $("#tarjetas").innerHTML = mios.map(([k, n], i) => tarjetaEquipo(k, n, i)).join("")
+      || `<div class="panel empty"><p>Elige arriba tus equipos (de cualquier competición) y aquí verás de cada uno su próximo partido con probabilidades, últimos resultados, posición y proyección, números de la temporada, goleadores, bajas y noticias.</p></div>`;
+    $("#tarjetas").querySelectorAll("[data-quita]").forEach(b => b.onclick = () => { const m = store.get("equipos", []).filter(([k]) => D.ligas[k]); m.splice(+b.dataset.quita, 1); store.set("equipos", m); pinta() });
+    $("#tarjetas").querySelectorAll("[data-te]").forEach(b => b.onclick = () => {
+      const [k, n] = mios[+b.dataset.te], L = D.ligas[k], r = L.proximos.find(x => x.local === n || x.visita === n), box = $("#te-" + b.dataset.te);
+      if (!box.innerHTML) box.innerHTML = simHtml(r.sim, r.local, r.visita, L, r);
+      box.hidden = !box.hidden });
+  }
+  pinta();
+}
+
+// ---------- Pick del fin de semana: como máximo un favorito y una "soñadora", nunca combinadas por defecto
+function pickVista(v) {
+  const hoy = new Date(), limite = new Date(Date.now() + 7 * 864e5), B = bankEstado();
+  const cands = [];
+  COMPS().forEach(([k, nombre]) => (D.ligas[k].proximos || []).forEach(r => {
+    const f = new Date(r.fecha + "T12:00"); if (f < new Date(hoy.toDateString()) || f > limite) return;
+    const L = D.ligas[k], { pm, pc, mk } = probsFila(r, L); if (!mk) return;
+    const alerta = Math.max(...pm.map((x, i) => Math.abs(x - mk[i]))) > 0.15, p = pc || pm, c = [r.c1, r.cx, r.c2];
+    [0, 1, 2].forEach(i => cands.push({ k, nombre, r, L, i, p: p[i], cuota: c[i], ev: p[i] * c[i] - 1, alerta,
+      sel: [`Gana ${r.local}`, "Empate", `Gana ${r.visita}`][i], pm: pm[i], mk: mk[i] })) }));
+  const ok = cands.filter(x => !x.alerta && x.cuota > 1);
+  // favorito: 65% o más y cuota de al menos 1.30 (con menos, se arriesga mucho para ganar centavos); Champions primero y luego el de mejor valor
+  const fav = ok.filter(x => x.p >= 0.65 && x.cuota >= 1.3).sort((a, b) => (b.k === "ucl") - (a.k === "ucl") || b.ev - a.ev)[0];
+  const sue = ok.filter(x => x.cuota >= 4 && x.ev >= 0).sort((a, b) => b.ev - a.ev)[0];
+  const monto = (x, f) => Math.max(0, Math.round(B.saldo * f));
+  const tarjeta = (x, tipo) => {
+    const f = tipo === "fav" ? (x.ev >= 0 ? 0.05 : 0.03) : 0.01, n = tipo === "fav" ? Math.round(1 / (1 - x.p)) : Math.round(1 / x.p);
+    const s = x.r.sim, lm = s && s.lm;
+    return `<div class="panel tarjeta"><span class="small">${tipo === "fav" ? "Favorito de la semana" : "Soñadora"} · ${esc(x.nombre)} · ${fechaCorta(x.r.fecha)}</span>
+      <h2>${esc(x.sel)}</h2><div>${esc(x.r.local)} vs ${esc(x.r.visita)} · cuota <b class="mono">${f2(x.cuota)}</b></div>
+      <div class="big"><div><span class="k">Probabilidad</span><span class="v">${pct(x.p)}</span></div><div><span class="k">Valor esperado</span><span class="v">${x.ev >= 0 ? "+" : ""}${pct(x.ev, 1)}</span></div>
+        ${B.ini > 0 && B.saldo > 0 ? `<div><span class="k">Monto (${Math.round(f * 100)}% del bank)</span><span class="v">$${monto(x, f)}</span></div>` : ""}</div>
+      <p style="margin:0">${tipo === "fav" ? `El modelo (${pct(x.pm)}) y el mercado (${pct(x.mk)}) coinciden en que es lo más probable. Aun así <b>falla 1 de cada ${n} veces</b>.`
+        : `Paga ${f2(x.cuota)} por cada peso. Según modelo + mercado acierta alrededor de <b>1 de cada ${n} veces</b>; la cuota compensa ese riesgo (valor esperado ${x.ev >= 0 ? "positivo" : "negativo"}), pero lo normal es perderla.`}
+        ${lm ? ` Goles esperados ${lm[0].toFixed(2)} – ${lm[1].toFixed(2)}.` : ""}${x.r.xi && x.r.xi.mult ? ` Alineación: ×${x.r.xi.mult[0]} / ×${x.r.xi.mult[1]}.` : ""}</p>
+      ${x.ev < 0 ? `<p class="small" style="margin:0">El valor esperado es negativo: es el margen de la casa. Apostar al favorito es entretenimiento con riesgo bajo, no una inversión.</p>` : ""}
+      ${B.ini > 0 && B.saldo > 0 ? `<button class="btn" data-reg="${tipo}">Registrar en Mis apuestas ($${monto(x, f)})</button>` : ""}</div>`;
+  };
+  let combinada = "";
+  if (fav && sue) {
+    const m = r => [r.c1, r.cx, r.c2].reduce((s, c) => s + 1 / c, 0);
+    const pj = fav.p * sue.p, cj = fav.cuota * sue.cuota, mj = 1 - 1 / (m(fav.r) * m(sue.r));
+    combinada = `<p class="small">Si las juntas en una combinada: la probabilidad de acertar las dos es ${pct(fav.p)} × ${pct(sue.p)} = <b>${pct(pj, 1)}</b> (1 de cada ${Math.round(1 / pj)}), con cuota ${f2(cj)}. Los márgenes de la casa también se multiplican: cerca de ${pct(1 - 1 / m(fav.r), 1)} y ${pct(1 - 1 / m(sue.r), 1)} por separado, y alrededor de <b>${pct(mj, 1)}</b> juntas. Por eso aquí nunca se proponen combinadas.</p>`;
+  }
+  v.innerHTML = `<div style="display:grid;gap:16px">
+    <p class="warn"><b>No existen apuestas seguras.</b> Incluso un 80% falla 1 de cada 5 veces. Esto es para divertirse con un bank cerrado: lo que está en el bank es lo único que se arriesga.</p>
+    ${B.ini <= 0 ? `<div class="panel"><p style="margin:0">Captura tu bank inicial en <b>Mis apuestas</b> para ver montos sugeridos.</p></div>` : B.saldo <= 0 ? `<div class="panel warn"><b>El bank se terminó.</b> Siguiendo tu regla, aquí se acaba la temporada de apuestas: no se recarga. El tablero sigue sirviendo para el análisis.</div>` : `<div class="meta"><span>Bank disponible: <b>$${Math.round(B.saldo)}</b></span><span>Favorito: 3–5% del bank · Soñadora: 1%</span></div>`}
+    <div class="tarjetas">${fav ? tarjeta(fav, "fav") : `<div class="panel"><p style="margin:0">Esta semana no hay un favorito claro: ningún resultado llega a 65% con cuota de 1.30 o más y con modelo y mercado de acuerdo. Pasar también es una buena decisión.</p></div>`}
+      ${sue ? tarjeta(sue, "sue") : `<div class="panel"><p style="margin:0">Esta semana no hay soñadora: ninguna cuota de 4.0 o más tiene valor esperado positivo según modelo + mercado.</p></div>`}</div>
+    ${combinada}
+    <p class="small">Criterios: los próximos 7 días; favorito = resultado con probabilidad combinada (modelo + mercado) de 65% o más y cuota de al menos 1.30, Champions primero, sin alerta de diferencia con el mercado; soñadora = cuota 4.0 o más con valor esperado combinado ≥ 0. Revisa la alineación confirmada (pestaña En vivo o Google) antes de apostar.</p></div>`;
+  v.querySelectorAll("[data-reg]").forEach(b => b.onclick = () => {
+    const x = b.dataset.reg === "fav" ? fav : sue, f = b.dataset.reg === "fav" ? (x.ev >= 0 ? 0.05 : 0.03) : 0.01, a = store.get("apuestas", []);
+    a.push({ id: Date.now(), comp: x.k, fecha: x.r.fecha, local: x.r.local, visita: x.r.visita, sel: ["1", "X", "2"][x.i], cuota: x.cuota, monto: monto(x, f), casa: "", tipo: b.dataset.reg === "fav" ? "Favorito" : "Soñadora" });
+    store.set("apuestas", a); b.textContent = "Registrada ✓"; b.disabled = true });
+}
+
+// ---------- bank cerrado: saldo = inicial + ganancias de las resueltas − lo apostado en pendientes
+function bankEstado() {
+  const ini = +store.get("bank_inicial", 0) || 0;
+  const filas = store.get("apuestas", []).concat(D.apuestas_archivo || []).map(a => ({ ...a, ...estadoApuesta(a) }));
+  const res = filas.filter(f => f.estado !== "Pendiente").sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const pend = filas.filter(f => f.estado === "Pendiente").reduce((s, f) => s + f.monto, 0);
+  const serie = [ini]; res.forEach(f => serie.push(serie[serie.length - 1] + f.ganancia));
+  return { ini, saldo: serie[serie.length - 1] - pend, pend, serie };
+}
+function graficaBank(serie) {
+  if (serie.length < 2) return "";
+  const W = 320, H = 120, mx = Math.max(...serie), mn = Math.min(0, ...serie), x = i => 10 + i * (W - 20) / (serie.length - 1), y = v => H - 16 - (v - mn) / (mx - mn || 1) * (H - 30);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:420px" role="img" aria-label="Evolución del bank">
+    <line x1="10" x2="${W - 10}" y1="${y(serie[0])}" y2="${y(serie[0])}" stroke="var(--line)" stroke-dasharray="4 4"/>
+    <polyline fill="none" stroke="var(--turf)" stroke-width="2" points="${serie.map((v, i) => x(i) + "," + y(v)).join(" ")}"/>
+    ${serie.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="var(--turf)"><title>$${Math.round(v)}</title></circle>`).join("")}
+    <text x="10" y="${H - 2}">inicio $${Math.round(serie[0])}</text><text x="${W - 10}" y="${H - 2}" text-anchor="end">hoy $${Math.round(serie[serie.length - 1])}</text></svg>`;
+}
+
 // ---------- registro de apuestas: se guarda en este navegador; CLV = tu cuota frente a la de cierre
 const SEL = { "1": 0, "X": 1, "2": 2 };
 function estadoApuesta(a) {
@@ -619,6 +749,9 @@ function apuestasVista(v) {
   const lista = () => store.get("apuestas", []).concat((D.apuestas_archivo || []).map(a => ({ ...a, archivo: true })));
   const comps = ORDEN.filter(([k]) => D.ligas[k]);
   v.innerHTML = `<div style="display:grid;gap:16px">
+    <div class="panel" style="display:grid;gap:12px"><h3>Bank cerrado</h3>
+      <div class="calc-top"><label for="bini" style="flex:0 1 180px">Bank inicial (MXN)<input id="bini" type="number" min="0" step="50" value="${store.get("bank_inicial", "") || ""}" placeholder="Ej. 500"></label></div>
+      <div id="bank"></div></div>
     <div class="panel" style="display:grid;gap:12px"><h3>Registrar apuesta</h3>
       <div class="calc-top">
         <label for="ac" style="flex:0 1 170px">Competición<select id="ac">${comps.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
@@ -656,7 +789,15 @@ function apuestasVista(v) {
       return { id: Date.now() + i, comp: o.competicion, fecha: o.fecha, local: o.local, visita: o.visita, sel: o.seleccion, cuota: +o.cuota, monto: +o.monto, casa: o.casa } })
       .filter(a => a.cuota > 1 && a.local);
     store.set("apuestas", store.get("apuestas", []).concat(nuevas)); pinta() };
+  $("#bini").onchange = e => { store.set("bank_inicial", +e.target.value || 0); pinta() };
   function pinta() {
+    const B = bankEstado();
+    $("#bank").innerHTML = B.ini <= 0 ? `<p class="small" style="margin:0">Escribe el dinero que destinas a esta temporada. La regla: solo se apuesta lo que hay en el bank y no se recarga desde tu cuenta.</p>`
+      : `${B.saldo <= 0 ? `<p class="warn"><b>El bank se terminó.</b> Según tu regla, aquí se acaba: no se recarga. El tablero sigue sirviendo para el análisis y para seguir a tus equipos.</p>` : ""}
+        <div class="big"><div><span class="k">Inicial</span><span class="v">$${Math.round(B.ini)}</span></div><div><span class="k">Disponible</span><span class="v">$${Math.round(Math.max(0, B.saldo))}</span></div>
+          <div><span class="k">En juego</span><span class="v">$${Math.round(B.pend)}</span></div><div><span class="k">Resultado</span><span class="v">${B.saldo + B.pend - B.ini >= 0 ? "+" : ""}$${Math.round(B.saldo + B.pend - B.ini)}</span></div></div>
+        ${B.saldo > 0 ? `<div class="meta"><span>Monto sugerido para un favorito: $${Math.round(B.saldo * 0.03)}–$${Math.round(B.saldo * 0.05)} (3–5%)</span><span>Para una soñadora: $${Math.round(B.saldo * 0.01)} (1%)</span></div>` : ""}
+        ${graficaBank(B.serie)}`;
     const filas = lista().map(a => ({ ...a, ...estadoApuesta(a) })).sort((x, y) => y.fecha.localeCompare(x.fecha));
     const res = filas.filter(f => f.estado !== "Pendiente"), conClv = filas.filter(f => f.clv != null);
     const apostado = res.reduce((s, f) => s + f.monto, 0), gan = res.reduce((s, f) => s + f.ganancia, 0);
@@ -665,7 +806,7 @@ function apuestasVista(v) {
       <div><span class="k">CLV promedio</span><span class="v">${conClv.length ? (conClv.reduce((s, f) => s + f.clv, 0) / conClv.length >= 0 ? "+" : "") + pct(conClv.reduce((s, f) => s + f.clv, 0) / conClv.length, 1) : "–"}</span></div>
       <div><span class="k">Con CLV positivo</span><span class="v">${conClv.length ? pct(conClv.filter(f => f.clv > 0).length / conClv.length) : "–"}</span></div></div>`;
     $("#atabla").innerHTML = `<thead><tr><th>Fecha</th><th>Partido</th><th>Apuesta</th><th class="n">Cuota</th><th class="n">Monto</th><th>Casa</th><th>Estado</th><th class="n">Cierre</th><th class="n">CLV</th><th class="n">Ganancia</th><th></th></tr></thead><tbody>
-      ${filas.map(f => `<tr><td class="mono">${f.fecha}</td><td>${esc(f.local)} vs ${esc(f.visita)}</td><td>${f.sel}</td><td class="n">${f2(f.cuota)}</td><td class="n">$${f.monto}</td><td>${esc(f.casa || "")}</td>
+      ${filas.map(f => `<tr><td class="mono">${f.fecha}</td><td>${esc(f.local)} vs ${esc(f.visita)}</td><td>${f.sel}${f.tipo ? ` <span class="small">${esc(f.tipo)}</span>` : ""}</td><td class="n">${f2(f.cuota)}</td><td class="n">$${f.monto}</td><td>${esc(f.casa || "")}</td>
         <td>${f.estado}${f.marcador ? ` (${f.marcador})` : ""}</td><td class="n">${f.cierre ? f2(f.cierre) : "–"}</td><td class="n">${f.clv != null ? (f.clv >= 0 ? "+" : "") + pct(f.clv, 1) : "–"}</td>
         <td class="n">${f.ganancia != null ? (f.ganancia >= 0 ? "+" : "") + "$" + Math.round(f.ganancia) : "–"}</td><td>${f.archivo ? '<span class="small">archivo</span>' : `<button class="btn simbtn" data-borra="${f.id}">Borrar</button>`}</td></tr>`).join("")
         || `<tr><td colspan="11" class="small">Todavía no hay apuestas registradas.</td></tr>`}</tbody>`;
@@ -697,8 +838,8 @@ function equipoESPN(nombre, J) {
   }
   return max >= 0.5 ? mejor : null;
 }
-function bajasEquipo(nombre) {
-  const J = jugadoresDe(liga), e = equipoESPN(nombre, J);
+function bajasEquipo(nombre, comp = liga) {
+  const J = jugadoresDe(comp), e = equipoESPN(nombre, J);
   return e ? J.jugadores.filter(j => j.equipo_id === e.id && j.lesion) : [];
 }
 const estadoHtml = l => l ? `<span class="estado ${esc(l.estado)}">${esc(l.estado)}${l.prob != null ? " " + l.prob + "%" : ""}</span>` : "";
