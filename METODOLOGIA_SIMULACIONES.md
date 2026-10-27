@@ -76,12 +76,28 @@ No se simulan la liguilla, el repechaje ni los desempates oficiales específicos
 En las copas se enfrentan clubes de ligas distintas, así que las fuerzas domésticas no son comparables directamente. Como ClubElo no siempre responde, el tablero usa un modelo propio:
 
 - **Datos:** todos los partidos de Champions, Europa y Conference League que tiene ESPN desde julio de 2025, incluidas las rondas previas. Se ajustan juntos porque muchos clubes pasan de una copa a otra.
-- **Fuerza de un club de nuestras 6 ligas:** ataque = ataque en su liga doméstica (del modelo de esa liga) + un **ajuste por liga**; lo mismo para la defensa. El ajuste por liga mide, por ejemplo, cuánto más fuerte es un club de la Premier frente a uno de la Eredivisie con la misma fuerza relativa en su liga.
-- **Clubes de otras ligas** (Alemania, Portugal, Bélgica, Turquía, Escocia, etc.): ataque = ajuste común "otras ligas" + desviación propia. La desviación propia se estima solo con sus partidos europeos y tiene regularización fuerte (ridge 2.0) hacia la media, porque cada club juega pocos partidos.
-- **Estimación:** Poisson ponderado (mismo decaimiento temporal) y penalizado, con gradiente analítico. La localía se estima con estos mismos partidos. ρ se fija en el promedio de las ligas domésticas.
+- **Versión 2 (con valor de mercado), la que se usa cuando valida mejor:**
+  ataque de copa = ajuste de su liga + δ_A · ataque doméstico + γ_A · log(valor de la plantilla) + desviación propia;
+  defensa de copa = ajuste de su liga + δ_D · defensa doméstica − γ_D · log(valor de la plantilla) + desviación propia.
+  - El **valor de mercado** de cada plantilla (Transfermarkt, tabla de clubes de unas 35 ligas europeas) es comparable entre ligas, y por eso es la principal referencia para cruces entre ligas distintas. Los clubes sin valor encontrado reciben el percentil 10 (casi siempre son clubes chicos de rondas previas).
+  - Las fuerzas domésticas se **centran en la media de su liga** antes de combinarse. δ (prior 1) y γ (prior 0) se estiman con los partidos europeos.
+  - Los **ajustes por liga** tienen ridge 1.0; la **desviación propia** de clubes de otras ligas, ridge 2.0.
+  - La **localía** tiene un prior de ×1.18 (ridge 5 en escala logarítmica), cercano a la ventaja histórica en copas europeas.
+- **Versión 1 (respaldo):** ataque = ataque doméstico + ajuste por liga (+ desviación propia si el club es de otra liga), sin valor de mercado. Se usa si Transfermarkt no responde o si valida mejor.
+- **Estimación:** Poisson ponderado (mismo decaimiento temporal) y penalizado, con gradiente analítico. ρ se fija en el promedio de las ligas domésticas.
 - **Incertidumbre:** inversa del Hessiano exacto de la parte Poisson. Las fuerzas domésticas se toman como dadas, así que su incertidumbre no se suma.
 - **Simulación de la fase de liga** (36 equipos, 8 partidos cada uno): se juega el calendario restante publicado por ESPN. 1-8 pasan a octavos, 9-24 al playoff y 25-36 quedan eliminados.
 - **Validación:** el modelo se ajusta solo con la temporada anterior y se pronostican los partidos jugados de la actual. Advertencia: las fuerzas domésticas usadas son las actuales, lo que favorece un poco al modelo.
+
+## 6 bis. Alineación titular (todas las competiciones)
+
+Las fuerzas del modelo reflejan al equipo "típico" de los últimos meses. Para el partido concreto se ajustan con el XI que se espera que juegue:
+
+1. **XI esperado:** el confirmado por ESPN, si ya se publicó (alrededor de 1 hora antes del partido). Si no, el XI titular del último partido del equipo en cualquier competición que siga el tablero. A ese XI se le quitan los lesionados y suspendidos conocidos (Transfermarkt, parte de la Premier y ESPN), y en su lugar entra el jugador disponible de más valor de la misma línea.
+2. **Calidad:** el valor de mercado de cada jugador en Transfermarkt (página de plantilla del club, actualizada cada 7 días). El nombre de ESPN se une con el de Transfermarkt por parecido de nombre; si no se encuentra, se usa el valor mediano de la plantilla.
+3. **Razones:** r_ataque = valor de medios y delanteros del XI / valor de medios y delanteros del mejor 1-4-3-3 posible de la plantilla. r_defensa es lo mismo con portero y defensas.
+4. **Ajuste:** goles esperados del local × r_ataque(local)^β_a × r_defensa(visita)^(−β_d); lo mismo para el visitante. Un XI con menos valor ofensivo anota menos; una defensa con menos valor recibe más.
+5. **Estimación de β:** con los partidos ya jugados de esta temporada cuya alineación conocemos (ligas, últimas 3 semanas, y copas europeas), por máxima verosimilitud Poisson con los goles esperados del modelo como offset y ridge 2. Si la alineación no mejora el log-loss, se usa β = 0.1. Advertencia: es una estimación dentro de muestra y con las plantillas actuales.
 
 ## 7. Probabilidad en vivo
 
@@ -96,7 +112,7 @@ En la pestaña En vivo, para un partido en juego en el minuto t con marcador a-b
 ## 9. Limitaciones
 
 - **Independencia y estructura:** los goles se modelan como Poisson con una corrección solo para marcadores bajos. No hay dinámica dentro del partido (expulsiones, el equipo que va ganando se cierra, etc.).
-- **Sin lesiones ni alineaciones:** el modelo solo ve resultados. Las bajas que aparecen en la página son informativas y no ajustan las probabilidades. Una baja importante de última hora no está reflejada.
+- **Alineación aproximada:** hasta que ESPN publica el XI confirmado, se supone que repite el XI del último partido sin los lesionados conocidos. Las rotaciones (por ejemplo, entre semana de copa) y las bajas de último momento no se anticipan. El valor de mercado es una aproximación imperfecta de la calidad: no mide el estado de forma ni el encaje táctico.
 - **Sin tiros ni xG en la estimación:** se usan goles, que son ruidosos. Los tiros y córners se muestran, pero no entran al modelo.
 - **Tamaño de muestra:** al inicio de temporada y con equipos recién ascendidos hay pocos datos, y el modelo depende más de la penalización y de la temporada anterior.
 - **Aproximación normal:** la incertidumbre se aproxima con una normal alrededor del óptimo. Con pocos datos, la distribución real podría ser asimétrica.

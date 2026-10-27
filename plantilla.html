@@ -294,10 +294,11 @@ function proximos(el, L) {
   el.innerHTML = `<div class="panel">
     <p class="small" style="margin:0 0 6px">Escribe la cuota de tu casa en cada casilla. El gris dentro de la casilla es la cuota justa del modelo; un porcentaje ámbar indica valor esperado por encima de tu mínimo y el monto sugerido.</p>
     ${L.proximos.map((r, i) => { const id = liga + "-" + r.fecha + "-" + i;
-      return filaPartido(r, lambdasLiga(L, r.local, r.visita), { id }) + (r.sim ? `<div class="simbox" id="sb-${id}" hidden></div>` : "") }).join("")}</div>`;
+      // con simulación, la barra usa los goles esperados ya ajustados por la alineación titular
+      return filaPartido(r, (r.sim && r.sim.lm) || lambdasLiga(L, r.local, r.visita), { id }) + (r.sim ? `<div class="simbox" id="sb-${id}" hidden></div>` : "") }).join("")}</div>`;
   el.querySelectorAll(".simbtn[data-sb]").forEach(b => b.onclick = () => {
     const box = document.getElementById(b.dataset.sb), r = L.proximos[+b.dataset.sb.split("-").pop()];
-    if (!box.innerHTML) box.innerHTML = simHtml(r.sim, r.local, r.visita, L);
+    if (!box.innerHTML) box.innerHTML = simHtml(r.sim, r.local, r.visita, L, r);
     box.hidden = !box.hidden; b.setAttribute("aria-expanded", String(!box.hidden));
   });
   conectarCuotas(el);
@@ -401,34 +402,57 @@ function histTotal(h) {
       <text x="${i * bw + bw / 2}" y="${y - 3}" text-anchor="middle">${Math.round(100 * p)}</text>
       <text x="${i * bw + bw / 2}" y="${H + 14}" text-anchor="middle">${i}${i === h.length - 1 ? "+" : ""}</text>` }).join("")}</svg>`;
 }
-function explicacion(s, nl, nv, L) {
+const millones = v => v >= 1e6 ? "€" + (v / 1e6).toFixed(v >= 1e8 ? 0 : 1) + "M" : "€" + Math.round(v / 1e3) + "k";
+function xiHtml(nombre, x) {
+  if (!x) return `<p>${esc(nombre)}: sin alineación disponible; se usa la fuerza del modelo sin ajuste.</p>`;
+  const orden = { POR: 0, DEF: 1, MED: 2, DEL: 3 };
+  const js = [...x.jugadores].sort((a, b) => orden[a.grupo] - orden[b.grupo]);
+  return `<p style="margin:4px 0"><b>${esc(nombre)}</b> (${esc(x.fuente)}): ${js.map(j => `${esc(j.nombre)} <span class="mono">${millones(j.valor)}</span>${j.reemplazo_de ? ` <span class="estado Duda">entra por ${esc(j.reemplazo_de)}, baja</span>` : ""}`).join(" · ")}.
+    Medios y delanteros valen el ${pct(x.r_ataque)} de los mejores de su plantilla; portero y defensas, el ${pct(x.r_defensa)}.</p>`;
+}
+function explicacion(s, nl, nv, L, r = {}) {
   const m = L.modelo, P = [-0.25, 0.25], [al, dl] = m.equipos[nl] || P, [av, dv] = m.equipos[nv] || P;
   const e = Math.exp, f = x => x.toFixed(2), mult = x => "×" + e(x).toFixed(2);
   const base = e(m.mu), loc = e(m.home), lam = base * e(al) * e(dv) * loc, mu2 = base * e(av) * e(dl);
   const n = s.n.toLocaleString("es-MX"), veces = p => Math.round(p * s.n).toLocaleString("es-MX");
   const [ma, mb, mp] = s.marcadores[0], ee = s.ee[0] * 1.96, A = s.analitica;
+  const xi = r.xi || {}, mx = xi.mult || [1, 1], lmF = s.lm || [lam, mu2], esCopa = liga === "ucl" || liga === "uel";
   return `<details class="small"><summary>¿Cómo se calculó? (paso a paso con los números de este partido)</summary><ol class="pasos">
-    <li><b>Fuerzas del modelo.</b> Un equipo promedio contra otro promedio, sin localía, anota en promedio ${f(base)} goles. Jugar de local multiplica los goles por ${f(loc)}.
-      ${esc(nl)}: ataque ${mult(al)}, defensa ${mult(dl)}. ${esc(nv)}: ataque ${mult(av)}, defensa ${mult(dv)}. Un ataque ×1.20 anota 20% más que el promedio; una defensa ×0.80 recibe 20% menos. Salen de ajustar el modelo a todos los resultados, con más peso a los recientes.</li>
-    <li><b>Goles esperados.</b> ${esc(nl)} = ${f(base)} × ${f(e(al))} (su ataque) × ${f(e(dv))} (defensa de ${esc(nv)}) × ${f(loc)} (localía) = <b>${f(lam)}</b>.
-      ${esc(nv)} = ${f(base)} × ${f(e(av))} (su ataque) × ${f(e(dl))} (defensa de ${esc(nl)}) = <b>${f(mu2)}</b>.</li>
-    <li><b>Corrección Dixon-Coles</b> (ρ = ${m.rho.toFixed(3)}). Contar goles con Poisson por separado se equivoca un poco en marcadores bajos. Por eso la probabilidad del 0-0 se multiplica por ${f(1 - lam * mu2 * m.rho)}, la del 1-1 por ${f(1 - m.rho)}, la del 1-0 por ${f(1 + mu2 * m.rho)} y la del 0-1 por ${f(1 + lam * m.rho)}; después todo se reescala para sumar 100%.</li>
+    <li><b>Fuerzas del modelo.</b> La escala parte de un equipo de referencia: uno promedio de la competición contra otro promedio, sin localía, anota ${f(base)} goles. Eso es solo el punto de partida; a cada equipo se le aplica su propia fuerza.
+      ${esc(nl)}: ataque ${mult(al)}, defensa ${mult(dl)}. ${esc(nv)}: ataque ${mult(av)}, defensa ${mult(dv)}. Un ataque ×1.50 anota 50% más que el equipo de referencia; una defensa ×0.80 recibe 20% menos. Jugar de local multiplica los goles por ${f(loc)}.
+      ${esCopa ? "En copas, la fuerza combina el valor de mercado de la plantilla (Transfermarkt), el rendimiento en su liga y los partidos europeos." : "Salen de ajustar el modelo a todos los resultados, con más peso a los recientes."}</li>
+    <li><b>Alineación.</b> ${xi.local || xi.visita ? `Se usa el XI esperado de cada equipo y se compara con su mejor XI posible por valor de mercado (1-4-3-3).
+      ${xiHtml(nl, xi.local)}${xiHtml(nv, xi.visita)}
+      Efecto en goles esperados (β ataque ${xi.beta ? xi.beta[0] : "–"}, β defensa ${xi.beta ? xi.beta[1] : "–"}, estimados con partidos jugados): ${esc(nl)} ×${f(mx[0])}, ${esc(nv)} ×${f(mx[1])}.` : "Sin alineación disponible para este partido; se usa la fuerza del modelo sin ajuste."}</li>
+    <li><b>Goles esperados.</b> ${esc(nl)} = ${f(base)} × ${f(e(al))} (su ataque) × ${f(e(dv))} (defensa de ${esc(nv)}) × ${f(loc)} (localía)${mx[0] !== 1 ? ` × ${f(mx[0])} (alineación)` : ""} = <b>${f(lmF[0])}</b>.
+      ${esc(nv)} = ${f(base)} × ${f(e(av))} (su ataque) × ${f(e(dl))} (defensa de ${esc(nl)})${mx[1] !== 1 ? ` × ${f(mx[1])} (alineación)` : ""} = <b>${f(lmF[1])}</b>.</li>
+    <li><b>Corrección Dixon-Coles</b> (ρ = ${m.rho.toFixed(3)}). Contar goles con Poisson por separado se equivoca un poco en marcadores bajos. Por eso la probabilidad del 0-0 se multiplica por ${f(1 - lmF[0] * lmF[1] * m.rho)}, la del 1-1 por ${f(1 - m.rho)}, la del 1-0 por ${f(1 + lmF[1] * m.rho)} y la del 0-1 por ${f(1 + lmF[0] * m.rho)}; después todo se reescala para sumar 100%.</li>
     <li><b>Simulación.</b> Las fuerzas son estimaciones, no certezas. Se sacaron ${s.juegos.toLocaleString("es-MX")} juegos de fuerzas posibles, de una distribución normal con la incertidumbre del ajuste. Con cada juego se recalcularon los goles esperados, se armó la tabla de probabilidades de todos los marcadores de 0-0 a 10-10 y se sortearon 10 marcadores: se tira un número al azar entre 0 y 1 y se elige el marcador en el que la probabilidad acumulada lo alcanza. En total, ${n} partidos simulados.</li>
     <li><b>Conteo.</b> En las ${n} simulaciones, ${esc(nl)} ganó ${veces(s.p[0])} veces (${pct(s.p[0], 1)}), empataron ${veces(s.p[1])} (${pct(s.p[1], 1)}) y ganó ${esc(nv)} ${veces(s.p[2])} (${pct(s.p[2], 1)}).
       El marcador que más salió fue ${ma}-${mb} (${pct(mp, 1)}). En promedio, ${esc(nl)} anotó ${s.goles[0].toFixed(2)} y ${esc(nv)} ${s.goles[1].toFixed(2)}.</li>
     <li><b>Qué significan el ± y el rango.</b> "± ${(100 * ee).toFixed(1)}" en la victoria de ${esc(nl)}: si se repitiera la simulación con otros números al azar, el resultado quedaría casi siempre entre ${pct(s.p[0] - ee, 1)} y ${pct(s.p[0] + ee, 1)}; es el error de la simulación y es pequeño.
       "Rango 90%: ${pct(s.int90[0][0])}–${pct(s.int90[0][1])}": dependiendo de qué tan fuertes sean realmente los equipos, la probabilidad verdadera de que gane ${esc(nl)} podría estar en cualquier punto de ese rango. Esa es la incertidumbre del modelo, no de la simulación.</li>
-    <li><b>Comparación con la fórmula.</b> Sin incertidumbre, la fórmula exacta con los goles esperados del paso 2 da ${pct(A[0], 1)} / ${pct(A[1], 1)} / ${pct(A[2], 1)}, y la simulación ${pct(s.p[0], 1)} / ${pct(s.p[1], 1)} / ${pct(s.p[2], 1)}.
+    <li><b>Comparación con la fórmula.</b> Sin incertidumbre, la fórmula exacta con los goles esperados del paso 3 da ${pct(A[0], 1)} / ${pct(A[1], 1)} / ${pct(A[2], 1)}, y la simulación ${pct(s.p[0], 1)} / ${pct(s.p[1], 1)} / ${pct(s.p[2], 1)}.
       La diferencia en el empate (${(100 * (s.p[1] - A[1])).toFixed(1)} puntos) viene de mezclar escenarios: cuando hay dudas sobre las fuerzas, los partidos desiguales se vuelven algo más probables y los empates algo menos.</li></ol>
-    <p>No incluye lesiones ni alineaciones. Detalle técnico en METODOLOGIA_SIMULACIONES.md.</p></details>`;
+    ${mercado(r) ? `<p><b>Contra el mercado.</b> Las cuotas ${f2(r.c1)} / ${f2(r.cx)} / ${f2(r.c2)} equivalen, sin el margen de la casa, a ${mercado(r).map(x => pct(x, 1)).join(" / ")}. Solo hay valor si el modelo da más probabilidad que el mercado, y aun así conviene desconfiar de diferencias grandes.</p>` : ""}
+    <p>Detalle técnico en METODOLOGIA_SIMULACIONES.md.</p></details>`;
 }
-function simHtml(s, nl, nv, L) {
-  const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`];
-  return `<div class="grid2">
+// probabilidad implícita del mercado (sin margen de la casa) a partir de las cuotas 1X2
+function mercado(r) {
+  const c = [r.c1, r.cx, r.c2];
+  if (!c.every(x => x > 1)) return null;
+  const imp = c.map(x => 1 / x), t = imp.reduce((a, b) => a + b);
+  return imp.map(x => x / t);
+}
+function simHtml(s, nl, nv, L, r = {}) {
+  const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`], mk = mercado(r);
+  const dif = mk ? Math.max(...s.p.map((p, i) => Math.abs(p - mk[i]))) : 0;
+  return `${mk && dif > 0.15 ? `<p class="warn"><b>Revisa antes de apostar:</b> el modelo difiere ${(100 * dif).toFixed(0)} puntos del mercado. Las casas tienen información que el modelo no ve (alineaciones confirmadas, lesiones de último momento, motivación); una diferencia así suele indicar un hueco del modelo más que una oportunidad.</p>` : ""}
+    <div class="grid2">
     <div style="display:grid;gap:10px;align-content:start">
       <div class="bar">${s.p.map((p, i) => `<div class="${["b1", "bx", "b2"][i]}" style="width:${100 * p}%">${pct(p)}</div>`).join("")}</div>
-      <div class="scroll"><table><thead><tr><th>Resultado</th><th class="n">Montecarlo</th><th class="n" title="Error de muestreo, 95%">± error</th><th class="n" title="Percentiles 5 y 95 entre los juegos de parámetros">Rango 90%</th><th class="n" title="Fórmula Dixon-Coles con los parámetros estimados, sin simular">Fórmula</th><th class="n">Cuota justa</th></tr></thead><tbody>
-        ${nombres.map((n, i) => `<tr><td>${esc(n)}</td><td class="n"><b>${pct(s.p[i], 1)}</b></td><td class="n">${(196 * s.ee[i]).toFixed(1)}</td><td class="n">${pct(s.int90[i][0])}–${pct(s.int90[i][1])}</td><td class="n">${pct(s.analitica[i], 1)}</td><td class="n">${f2(1 / s.p[i])}</td></tr>`).join("")}
+      <div class="scroll"><table><thead><tr><th>Resultado</th><th class="n">Montecarlo</th><th class="n" title="Error de muestreo, 95%">± error</th><th class="n" title="Percentiles 5 y 95 entre los juegos de parámetros">Rango 90%</th><th class="n" title="Fórmula Dixon-Coles con los parámetros estimados, sin simular">Fórmula</th><th class="n">Cuota justa</th>${mk ? `<th class="n" title="Probabilidad implícita en las cuotas, sin el margen de la casa">Mercado</th>` : ""}</tr></thead><tbody>
+        ${nombres.map((n, i) => `<tr><td>${esc(n)}</td><td class="n"><b>${pct(s.p[i], 1)}</b></td><td class="n">${(196 * s.ee[i]).toFixed(1)}</td><td class="n">${pct(s.int90[i][0])}–${pct(s.int90[i][1])}</td><td class="n">${pct(s.analitica[i], 1)}</td><td class="n">${f2(1 / s.p[i])}</td>${mk ? `<td class="n">${pct(mk[i], 1)} <span class="small">(${f2([r.c1, r.cx, r.c2][i])})</span></td>` : ""}</tr>`).join("")}
       </tbody></table></div>
       <div class="meta"><span>Goles simulados ${s.goles[0].toFixed(2)} – ${s.goles[1].toFixed(2)}</span><span>Total de goles (90%): ${s.total_p5_p95[0]} a ${s.total_p5_p95[1]}</span><span>Más de 2.5: ${pct(s.over25)}</span><span>Ambos anotan: ${pct(s.ambos)}</span></div>
       <h3>Goles totales</h3>${histTotal(s.hist_total)}
@@ -437,7 +461,7 @@ function simHtml(s, nl, nv, L) {
       <table class="mk"><thead><tr><th>Marcador</th><th class="n">Prob.</th><th class="n">Cuota justa</th></tr></thead><tbody>
         ${s.marcadores.map(([a, b, p]) => `<tr><td>${esc(nl)} <b class="mono">${a}–${b}</b> ${esc(nv)}</td><td class="n">${pct(p, 1)}</td><td class="n">${f2(1 / p)}</td></tr>`).join("")}
       </tbody></table></div></div>
-    ${explicacion(s, nl, nv, L)}`;
+    ${explicacion(s, nl, nv, L, r)}`;
 }
 
 function temporada(el, L) {

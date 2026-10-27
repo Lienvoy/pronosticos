@@ -3,3 +3,4 @@ index.html
 _site/
 *.log
 __pycache__/
+cache_valores.json
