@@ -4,3 +4,5 @@ _site/
 *.log
 __pycache__/
 cache_valores.json
+apuestas.csv
+.env

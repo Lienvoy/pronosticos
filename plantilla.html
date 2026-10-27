@@ -155,7 +155,7 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 <script>
 (() => {
 const D = window.DATOS || { ligas: {}, copas: {} };
-const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["vivo","● En vivo"]];
+const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["vivo","● En vivo"],["apuestas","Mis apuestas"]];
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
@@ -220,7 +220,7 @@ if (!ORDEN.some(o => o[0] === liga)) liga = (ORDEN.find(o => D.ligas[o[0]]) || O
 
 function chips() {
   $("#ligas").innerHTML = ORDEN.map(([k, n]) => {
-    const ok = k === "vivo" || D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
+    const ok = k === "vivo" || k === "apuestas" || D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
     return `<button class="chip" data-k="${k}" aria-pressed="${k === liga}">${n}${ok ? "" : '<span class="dot" title="Sin datos en esta versión"></span>'}</button>` }).join("");
   $("#ligas").querySelectorAll(".chip").forEach(b => b.onclick = () => { liga = b.dataset.k; store.set("liga", liga); render() });
 }
@@ -229,6 +229,7 @@ function render() {
   chips();
   clearInterval(vivoTimer);
   if (liga === "vivo") return vivoVista($("#vista"));
+  if (liga === "apuestas") return apuestasVista($("#vista"));
   // las copas usan el modelo propio (mismas pestañas que una liga); si no lo hay, la calculadora Elo de ClubElo
   const esCopa = liga === "ucl" || liga === "uel", L = D.ligas[liga], copa = esCopa && !L, v = $("#vista");
   const nombre = ORDEN.find(o => o[0] === liga)[1];
@@ -262,14 +263,23 @@ function vacio(nombre) {
 
 // ---------- vistas de liga
 const google = (a, b, corto) => `<a class="btn simbtn" href="https://www.google.com/search?q=${encodeURIComponent(a + " vs " + b)}" target="_blank" rel="noopener">${corto ? "Google" : "Ver en Google"}</a>`;
+// combinación logarítmica modelo + mercado: p ∝ p_modelo^α · p_mercado^(1−α); α se eligió fuera de muestra
+function combinado(p, r) {
+  const L = D.ligas[liga], a = L && L.mezcla ? L.mezcla.alpha : 1, mk = mercado(r);
+  if (!mk || a >= 1) return null;
+  const q = p.map((x, i) => Math.pow(Math.max(x, 1e-6), a) * Math.pow(mk[i], 1 - a)), t = q.reduce((s, v) => s + v, 0);
+  return q.map(v => v / t);
+}
 function filaPartido(r, lm, opts = {}) {
   const M = matriz(...lm), k = mercados(M), id = opts.id;
-  const c = [r.c1, r.cx, r.c2], ps = [k.h, k.d, k.a];
+  const c = [r.c1, r.cx, r.c2], pm = [k.h, k.d, k.a], pc = combinado(pm, r), mk = mercado(r);
+  const ps = pc || pm;      // el valor esperado se calcula con la probabilidad combinada cuando hay cuotas
   const guard = store.get("c." + id, null);
   return `<div class="fx" data-id="${id}">
     <div class="when">${r.fecha.slice(5).split("-").reverse().join("/")}${opts.extra || ""}</div>
     <div class="teams"><b>${esc(r.local)}</b><b>${esc(r.visita)}</b>
       <span class="xg">goles esperados ${lm[0].toFixed(2)} – ${lm[1].toFixed(2)} · más de 2.5 ${pct(k.o25)} · ambos anotan ${pct(k.btts)}</span>
+      ${mk ? `<span class="xg">Modelo ${pm.map(x => pct(x)).join("/")} · Mercado ${mk.map(x => pct(x)).join("/")}${pc ? ` · <b>Combinado ${pc.map(x => pct(x)).join("/")}</b>` : ""}</span>` : ""}
       ${[r.local, r.visita].map(e => { const b = bajasEquipo(e); return b.length ? `<span class="out">Bajas ${esc(e)}: ${b.slice(0, 5).map(j => esc(j.nombre) + (j.lesion.estado === "Duda" ? " (duda)" : "")).join(", ")}${b.length > 5 ? ` y ${b.length - 5} más` : ""}</span>` : "" }).join("")}
       <span class="acciones">${r.sim ? `<button class="btn simbtn" data-sb="sb-${id}" aria-expanded="false" aria-controls="sb-${id}">Simulación</button>` : ""}${google(r.local, r.visita)}</span></div>
     <div><div class="bar"><div class="b1" style="width:${100 * k.h}%">${pct(k.h)}</div><div class="bx" style="width:${100 * k.d}%">${pct(k.d)}</div><div class="b2" style="width:${100 * k.a}%">${pct(k.a)}</div></div>
@@ -292,7 +302,7 @@ function actualizarEV() {
 function proximos(el, L) {
   if (!L.proximos.length) { el.innerHTML = `<div class="panel empty"><p>No hay partidos próximos en la fuente. Usa la calculadora para cualquier cruce.</p></div>`; return }
   el.innerHTML = `<div class="panel">
-    <p class="small" style="margin:0 0 6px">Escribe la cuota de tu casa en cada casilla. El gris dentro de la casilla es la cuota justa del modelo; un porcentaje ámbar indica valor esperado por encima de tu mínimo y el monto sugerido.</p>
+    <p class="small" style="margin:0 0 6px">Escribe la cuota de tu casa en cada casilla. El gris dentro de la casilla es la cuota justa del modelo; un porcentaje ámbar indica valor esperado por encima de tu mínimo y el monto sugerido. Cuando hay cuotas, el valor se calcula con la probabilidad <b>combinada</b> (modelo + mercado, con el peso que mejor pronosticó fuera de muestra: ${L.mezcla && L.mezcla.alpha < 1 ? `${Math.round(100 * L.mezcla.alpha)}% modelo` : "solo modelo"}).</p>
     ${L.proximos.map((r, i) => { const id = liga + "-" + r.fecha + "-" + i;
       // con simulación, la barra usa los goles esperados ya ajustados por la alineación titular
       return filaPartido(r, (r.sim && r.sim.lm) || lambdasLiga(L, r.local, r.visita), { id }) + (r.sim ? `<div class="simbox" id="sb-${id}" hidden></div>` : "") }).join("")}</div>`;
@@ -445,14 +455,14 @@ function mercado(r) {
   return imp.map(x => x / t);
 }
 function simHtml(s, nl, nv, L, r = {}) {
-  const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`], mk = mercado(r);
+  const nombres = [`Gana ${nl}`, "Empate", `Gana ${nv}`], mk = mercado(r), pc = combinado(s.p, r);
   const dif = mk ? Math.max(...s.p.map((p, i) => Math.abs(p - mk[i]))) : 0;
   return `${mk && dif > 0.15 ? `<p class="warn"><b>Revisa antes de apostar:</b> el modelo difiere ${(100 * dif).toFixed(0)} puntos del mercado. Las casas tienen información que el modelo no ve (alineaciones confirmadas, lesiones de último momento, motivación); una diferencia así suele indicar un hueco del modelo más que una oportunidad.</p>` : ""}
     <div class="grid2">
     <div style="display:grid;gap:10px;align-content:start">
       <div class="bar">${s.p.map((p, i) => `<div class="${["b1", "bx", "b2"][i]}" style="width:${100 * p}%">${pct(p)}</div>`).join("")}</div>
-      <div class="scroll"><table><thead><tr><th>Resultado</th><th class="n">Montecarlo</th><th class="n" title="Error de muestreo, 95%">± error</th><th class="n" title="Percentiles 5 y 95 entre los juegos de parámetros">Rango 90%</th><th class="n" title="Fórmula Dixon-Coles con los parámetros estimados, sin simular">Fórmula</th><th class="n">Cuota justa</th>${mk ? `<th class="n" title="Probabilidad implícita en las cuotas, sin el margen de la casa">Mercado</th>` : ""}</tr></thead><tbody>
-        ${nombres.map((n, i) => `<tr><td>${esc(n)}</td><td class="n"><b>${pct(s.p[i], 1)}</b></td><td class="n">${(196 * s.ee[i]).toFixed(1)}</td><td class="n">${pct(s.int90[i][0])}–${pct(s.int90[i][1])}</td><td class="n">${pct(s.analitica[i], 1)}</td><td class="n">${f2(1 / s.p[i])}</td>${mk ? `<td class="n">${pct(mk[i], 1)} <span class="small">(${f2([r.c1, r.cx, r.c2][i])})</span></td>` : ""}</tr>`).join("")}
+      <div class="scroll"><table><thead><tr><th>Resultado</th><th class="n">Montecarlo</th><th class="n" title="Error de muestreo, 95%">± error</th><th class="n" title="Percentiles 5 y 95 entre los juegos de parámetros">Rango 90%</th><th class="n" title="Fórmula Dixon-Coles con los parámetros estimados, sin simular">Fórmula</th><th class="n">Cuota justa</th>${mk ? `<th class="n" title="Probabilidad implícita en las cuotas, sin el margen de la casa">Mercado</th>` : ""}${pc ? `<th class="n" title="Modelo y mercado combinados con el peso que mejor pronosticó fuera de muestra">Combinado</th>` : ""}</tr></thead><tbody>
+        ${nombres.map((n, i) => `<tr><td>${esc(n)}</td><td class="n"><b>${pct(s.p[i], 1)}</b></td><td class="n">${(196 * s.ee[i]).toFixed(1)}</td><td class="n">${pct(s.int90[i][0])}–${pct(s.int90[i][1])}</td><td class="n">${pct(s.analitica[i], 1)}</td><td class="n">${f2(1 / s.p[i])}</td>${mk ? `<td class="n">${pct(mk[i], 1)} <span class="small">(${f2([r.c1, r.cx, r.c2][i])})</span></td>` : ""}${pc ? `<td class="n"><b>${pct(pc[i], 1)}</b></td>` : ""}</tr>`).join("")}
       </tbody></table></div>
       <div class="meta"><span>Goles simulados ${s.goles[0].toFixed(2)} – ${s.goles[1].toFixed(2)}</span><span>Total de goles (90%): ${s.total_p5_p95[0]} a ${s.total_p5_p95[1]}</span><span>Más de 2.5: ${pct(s.over25)}</span><span>Ambos anotan: ${pct(s.ambos)}</span></div>
       <h3>Goles totales</h3>${histTotal(s.hist_total)}
@@ -511,6 +521,8 @@ function fiab(el, B) {
         <tr><td>Log-loss modelo (menor es mejor)</td><td class="n">${b.logloss.toFixed(3)}</td></tr>
         <tr><td>Log-loss solo frecuencias históricas</td><td class="n">${b.logloss_base.toFixed(3)}</td></tr>
         ${b.logloss_mercado ? `<tr><td>Log-loss de las cuotas del mercado</td><td class="n">${b.logloss_mercado.toFixed(3)}</td></tr>` : ""}
+        ${b.mezcla && b.mezcla.combinado ? `<tr><td>Log-loss combinado modelo + mercado (${b.mezcla.n} partidos con cuotas)</td><td class="n">${b.mezcla.combinado.toFixed(3)}</td></tr>` : ""}
+        ${b.xg && b.xg.logloss_por_peso && Object.keys(b.xg.logloss_por_peso).length > 1 ? `<tr><td>Log-loss solo goles / solo tiros / elegido (peso goles ${b.xg.peso_goles})</td><td class="n">${b.xg.logloss_por_peso["1.0"].toFixed(3)} / ${b.xg.logloss_por_peso["0.0"].toFixed(3)} / ${b.logloss.toFixed(3)}</td></tr>` : ""}
         <tr><td>Brier modelo / base</td><td class="n">${b.brier.toFixed(3)} / ${b.brier_base.toFixed(3)}</td></tr>
         <tr><td>Aciertos del favorito del modelo</td><td class="n">${pct(b.acierto, 1)}</td></tr>
         ${b.apuestas_valor != null ? `<tr><td>Apuestas con EV &gt; 5% en la prueba</td><td class="n">${b.apuestas_valor}</td></tr><tr><td>Rendimiento por apuesta (stake fijo)</td><td class="n">${b.roi_valor == null ? "–" : pct(b.roi_valor, 1)}</td></tr>` : ""}
@@ -590,6 +602,76 @@ function pintaVivo(res) {
   $("#vivo").innerHTML = seccion("En juego", grupos.in) + seccion("Por empezar (próximas 36 horas)", grupos.pre) + seccion("Terminados (últimas 30 horas)", grupos.post)
     || `<div class="panel empty"><p>No hay partidos en juego ni programados en las próximas 36 horas.</p></div>`;
   if (fallas) $("#vivo").insertAdjacentHTML("beforeend", `<p class="small">${fallas} competiciones no respondieron en esta consulta; se reintenta en 60 segundos.</p>`);
+}
+
+// ---------- registro de apuestas: se guarda en este navegador; CLV = tu cuota frente a la de cierre
+const SEL = { "1": 0, "X": 1, "2": 2 };
+function estadoApuesta(a) {
+  const L = D.ligas[a.comp], dias = f => Math.abs((new Date(f) - new Date(a.fecha)) / 864e5);
+  const r = L && L.recientes.find(x => x.local === a.local && x.visita === a.visita && dias(x.fecha) <= 1);
+  if (!r) return { estado: "Pendiente" };
+  const res = r.gl > r.gv ? 0 : r.gl === r.gv ? 1 : 2, gana = res === SEL[a.sel];
+  const cierre = [r.c1, r.cx, r.c2][SEL[a.sel]];
+  return { estado: gana ? "Ganada" : "Perdida", marcador: `${r.gl}-${r.gv}`, ganancia: gana ? a.monto * (a.cuota - 1) : -a.monto,
+           cierre: cierre > 1 ? cierre : null, clv: cierre > 1 ? a.cuota / cierre - 1 : null };
+}
+function apuestasVista(v) {
+  const lista = () => store.get("apuestas", []).concat((D.apuestas_archivo || []).map(a => ({ ...a, archivo: true })));
+  const comps = ORDEN.filter(([k]) => D.ligas[k]);
+  v.innerHTML = `<div style="display:grid;gap:16px">
+    <div class="panel" style="display:grid;gap:12px"><h3>Registrar apuesta</h3>
+      <div class="calc-top">
+        <label for="ac" style="flex:0 1 170px">Competición<select id="ac">${comps.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
+        <label for="ap">Partido<select id="ap"></select></label>
+        <label for="as" style="flex:0 1 120px">Apuesta<select id="as"><option value="1">1 (local)</option><option value="X">X (empate)</option><option value="2">2 (visita)</option></select></label>
+        <label for="aq" style="flex:0 1 110px">Cuota<input id="aq" type="number" step="0.01" min="1.01" inputmode="decimal"></label>
+        <label for="am" style="flex:0 1 110px">Monto<input id="am" type="number" step="10" min="0"></label>
+        <label for="ak" style="flex:0 1 150px">Casa<input id="ak" type="text" placeholder="Opcional"></label>
+        <button class="btn" id="aadd" style="align-self:end">Agregar</button></div>
+      <p class="small" style="margin:0">Se guarda en este navegador. Exporta el CSV de vez en cuando como respaldo; si lo guardas como <code>apuestas.csv</code> en la carpeta del tablero, la actualización también lo lee.</p></div>
+    <div class="panel" style="display:grid;gap:12px"><div id="aresumen"></div><div class="scroll"><table id="atabla"></table></div>
+      <div class="acciones"><button class="btn" id="aexp">Exportar CSV</button><label class="btn" style="cursor:pointer">Importar CSV<input id="aimp" type="file" accept=".csv" hidden></label></div>
+      <p class="small" style="margin:0"><b>CLV</b> (closing line value): cuánto mejor fue tu cuota que la de cierre (Pinnacle cuando hay). Si a la larga tu CLV promedio es positivo, estás apostando mejor que el mercado aunque pierdas algunas semanas; si es negativo, el método no tiene ventaja aunque vayas ganando. Es mejor indicador que el resultado de pocas apuestas.</p></div></div>`;
+  const llenaPartidos = () => { const L = D.ligas[$("#ac").value];
+    $("#ap").innerHTML = (L.proximos || []).map((r, i) => `<option value="${i}">${r.fecha.slice(5).split("-").reverse().join("/")} · ${esc(r.local)} vs ${esc(r.visita)}</option>`).join("") || "<option>Sin partidos próximos</option>";
+    pone(); };
+  const pone = () => { const r = (D.ligas[$("#ac").value].proximos || [])[+$("#ap").value]; if (r) $("#aq").value = [r.c1, r.cx, r.c2][SEL[$("#as").value]] || "" };
+  $("#ac").onchange = llenaPartidos; $("#ap").onchange = pone; $("#as").onchange = pone;
+  $("#aadd").onclick = () => {
+    const comp = $("#ac").value, r = (D.ligas[comp].proximos || [])[+$("#ap").value], cuota = +$("#aq").value, monto = +$("#am").value;
+    if (!r || !(cuota > 1) || !(monto > 0)) { alert("Elige un partido y escribe cuota (mayor a 1) y monto."); return }
+    const a = store.get("apuestas", []);
+    a.push({ id: Date.now(), comp, fecha: r.fecha, local: r.local, visita: r.visita, sel: $("#as").value, cuota, monto, casa: $("#ak").value.trim() });
+    store.set("apuestas", a); pinta() };
+  $("#aexp").onclick = () => {
+    const filas = [["fecha", "competicion", "local", "visita", "seleccion", "cuota", "monto", "casa"]].concat(store.get("apuestas", []).map(a => [a.fecha, a.comp, a.local, a.visita, a.sel, a.cuota, a.monto, a.casa || ""]));
+    const csv = filas.map(f => f.map(x => /[",\n]/.test(String(x)) ? `"${String(x).replace(/"/g, '""')}"` : x).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+    Object.assign(document.createElement("a"), { href: url, download: "apuestas.csv" }).click(); URL.revokeObjectURL(url) };
+  $("#aimp").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const lineas = (await f.text()).replace(/^﻿/, "").split(/\r?\n/).filter(Boolean), cab = lineas.shift().split(",");
+    const nuevas = lineas.map((l, i) => { const c = l.match(/("([^"]|"")*"|[^,]*)(,|$)/g).map(x => x.replace(/,$/, "").replace(/^"|"$/g, "").replace(/""/g, '"'));
+      const o = Object.fromEntries(cab.map((k, j) => [k.trim(), c[j]]));
+      return { id: Date.now() + i, comp: o.competicion, fecha: o.fecha, local: o.local, visita: o.visita, sel: o.seleccion, cuota: +o.cuota, monto: +o.monto, casa: o.casa } })
+      .filter(a => a.cuota > 1 && a.local);
+    store.set("apuestas", store.get("apuestas", []).concat(nuevas)); pinta() };
+  function pinta() {
+    const filas = lista().map(a => ({ ...a, ...estadoApuesta(a) })).sort((x, y) => y.fecha.localeCompare(x.fecha));
+    const res = filas.filter(f => f.estado !== "Pendiente"), conClv = filas.filter(f => f.clv != null);
+    const apostado = res.reduce((s, f) => s + f.monto, 0), gan = res.reduce((s, f) => s + f.ganancia, 0);
+    $("#aresumen").innerHTML = `<div class="big"><div><span class="k">Apuestas</span><span class="v">${filas.length}</span></div><div><span class="k">Resueltas</span><span class="v">${res.length}</span></div>
+      <div><span class="k">Ganancia</span><span class="v">${gan >= 0 ? "+" : ""}$${Math.round(gan)}</span></div><div><span class="k">ROI</span><span class="v">${apostado ? pct(gan / apostado, 1) : "–"}</span></div>
+      <div><span class="k">CLV promedio</span><span class="v">${conClv.length ? (conClv.reduce((s, f) => s + f.clv, 0) / conClv.length >= 0 ? "+" : "") + pct(conClv.reduce((s, f) => s + f.clv, 0) / conClv.length, 1) : "–"}</span></div>
+      <div><span class="k">Con CLV positivo</span><span class="v">${conClv.length ? pct(conClv.filter(f => f.clv > 0).length / conClv.length) : "–"}</span></div></div>`;
+    $("#atabla").innerHTML = `<thead><tr><th>Fecha</th><th>Partido</th><th>Apuesta</th><th class="n">Cuota</th><th class="n">Monto</th><th>Casa</th><th>Estado</th><th class="n">Cierre</th><th class="n">CLV</th><th class="n">Ganancia</th><th></th></tr></thead><tbody>
+      ${filas.map(f => `<tr><td class="mono">${f.fecha}</td><td>${esc(f.local)} vs ${esc(f.visita)}</td><td>${f.sel}</td><td class="n">${f2(f.cuota)}</td><td class="n">$${f.monto}</td><td>${esc(f.casa || "")}</td>
+        <td>${f.estado}${f.marcador ? ` (${f.marcador})` : ""}</td><td class="n">${f.cierre ? f2(f.cierre) : "–"}</td><td class="n">${f.clv != null ? (f.clv >= 0 ? "+" : "") + pct(f.clv, 1) : "–"}</td>
+        <td class="n">${f.ganancia != null ? (f.ganancia >= 0 ? "+" : "") + "$" + Math.round(f.ganancia) : "–"}</td><td>${f.archivo ? '<span class="small">archivo</span>' : `<button class="btn simbtn" data-borra="${f.id}">Borrar</button>`}</td></tr>`).join("")
+        || `<tr><td colspan="11" class="small">Todavía no hay apuestas registradas.</td></tr>`}</tbody>`;
+    $("#atabla").querySelectorAll("[data-borra]").forEach(b => b.onclick = () => { store.set("apuestas", store.get("apuestas", []).filter(a => String(a.id) !== b.dataset.borra)); pinta() });
+  }
+  llenaPartidos(); pinta();
 }
 
 // ---------- copas

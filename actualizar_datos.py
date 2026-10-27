@@ -325,10 +325,30 @@ def _tau(x, y, l, m, rho):
     return np.maximum(t, 1e-10)
 
 
-def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False):
+def xg_aproximado(jug):
+    """Goles esperados aproximados a partir de tiros: xG = a·tiros a puerta + b·tiros desviados, con a y b
+    estimados por mínimos cuadrados con los goles de la propia liga. Sin tiros (p. ej. Liga MX) devuelve None.
+    Los goles tienen mucho azar; los tiros miden mejor cuántas ocasiones genera y concede cada equipo."""
+    ok = jug[["tiros_l", "tiros_v", "arco_l", "arco_v"]].notna().all(axis=1)
+    if ok.mean() < 0.8:
+        return None
+    d = jug[ok]
+    A = np.r_[np.c_[d["arco_l"], d["tiros_l"] - d["arco_l"]], np.c_[d["arco_v"], d["tiros_v"] - d["arco_v"]]]
+    g = np.r_[d["gl"], d["gv"]].astype(float)
+    coef = np.clip(np.linalg.lstsq(A, g, rcond=None)[0], 0, None)
+    xl = coef[0] * jug["arco_l"] + coef[1] * (jug["tiros_l"] - jug["arco_l"])
+    xv = coef[0] * jug["arco_v"] + coef[1] * (jug["tiros_v"] - jug["arco_v"])
+    out = jug.copy()
+    out["xg_l"] = xl.fillna(jug["gl"]).astype(float)       # partidos sin tiros: se usan los goles
+    out["xg_v"] = xv.fillna(jug["gv"]).astype(float)
+    return out, [round(float(c), 3) for c in coef]
+
+
+def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles"):
     """Ajusta el modelo con los partidos anteriores a `hasta`, ponderados por antigüedad.
     Los equipos sin partidos antes del inicio de la temporada en curso (ascendidos) usan un prior más débil.
-    Con con_cov=True también devuelve el vector de parámetros y su covarianza aproximada (para Montecarlo)."""
+    Con con_cov=True también devuelve el vector de parámetros y su covarianza aproximada (para Montecarlo).
+    objetivo="xg" ajusta las mismas fuerzas sobre los goles esperados por tiros (sin corrección ρ)."""
     d = jug[jug["fecha"] < hasta]
     ini = max([s for s in inicios if s < hasta], default=d["fecha"].min())
     equipos_nuevos = set(d["local"]) - set(d[d["fecha"] < ini]["local"])
@@ -337,8 +357,10 @@ def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False):
     n = len(equipos)
     hi = d["local"].map(idx).to_numpy()
     ai = d["visita"].map(idx).to_numpy()
-    x = d["gl"].to_numpy(int)
-    y = d["gv"].to_numpy(int)
+    if objetivo == "xg":
+        x, y = d["xg_l"].to_numpy(float), d["xg_v"].to_numpy(float)
+    else:
+        x, y = d["gl"].to_numpy(int), d["gv"].to_numpy(int)
     dias = np.array([(hasta - f).days for f in d["fecha"]])
     w = np.exp(-XI * dias)
     pa = np.array([PRIOR_ASCENDIDO[0] if e in equipos_nuevos else 0 for e in equipos])
@@ -354,11 +376,11 @@ def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False):
         ll = x * np.log(l) - l - lgx + y * np.log(m) - m - lgy + np.log(_tau(x, y, l, m, rho))
         return -(w * ll).sum() + RIDGE * (((a - pa) ** 2).sum() + ((df_ - pd_) ** 2).sum())
 
-    p0 = np.concatenate([[0.2, 0.25, -0.05], pa, pd_])
-    bounds = [(None, None), (-1, 1), (-0.3, 0.3)] + [(-3, 3)] * (2 * n)
+    p0 = np.concatenate([[0.2, 0.25, 0.0 if objetivo == "xg" else -0.05], pa, pd_])
+    bounds = [(None, None), (-1, 1), (0, 0) if objetivo == "xg" else (-0.3, 0.3)] + [(-3, 3)] * (2 * n)
     r = minimize(nll, p0, method="L-BFGS-B", bounds=bounds)
     p = r.x
-    out = {"mu": float(p[0]), "home": float(p[1]), "rho": float(p[2]),
+    out = {"mu": float(p[0]), "home": float(p[1]), "rho": float(p[2]), "p": p, "orden": equipos,
            "ataque": {e: float(p[3 + i]) for i, e in enumerate(equipos)},
            "defensa": {e: float(p[3 + n + i]) for i, e in enumerate(equipos)}}
     if con_cov:
@@ -413,6 +435,50 @@ def matriz(l, m, rho):
     return M / M.sum()
 
 
+def combina_modelos(mg, mx, w):
+    """Fuerzas = w·(modelo de goles) + (1−w)·(modelo de tiros), en escala logarítmica. ρ sale del de goles.
+    Los dos se ajustan con los mismos partidos, así que el orden de los parámetros coincide."""
+    if mx is None or w >= 1:
+        return mg
+    p = w * mg["p"] + (1 - w) * mx["p"]
+    p[2] = mg["p"][2]
+    eq = mg["orden"]
+    n = len(eq)
+    out = {**mg, "mu": float(p[0]), "home": float(p[1]), "p": p,
+           "ataque": {e: float(p[3 + i]) for i, e in enumerate(eq)},
+           "defensa": {e: float(p[3 + n + i]) for i, e in enumerate(eq)}}
+    if "theta" in mg:
+        out["theta"] = p.copy()          # la incertidumbre (cov) se toma del modelo de goles
+    return out
+
+
+def mezcla_mercado(p, c, alpha):
+    """Combinación logarítmica: p_comb ∝ p_modelo^α · p_mercado^(1−α), con el mercado sin margen."""
+    if alpha >= 1 or c is None or any(v is None or not v > 1 for v in c):
+        return list(p)
+    imp = np.array([1 / v for v in c])
+    imp /= imp.sum()
+    q = np.power(np.clip(p, 1e-6, 1), alpha) * np.power(imp, 1 - alpha)
+    return list(q / q.sum())
+
+
+def _logloss(P, res):
+    P = np.asarray(P)
+    return float(-np.mean(np.log(np.clip(P[np.arange(len(P)), res], 1e-9, 1))))
+
+
+def elige_mezcla(preds):
+    """α de la combinación con el mercado, elegido en la prueba fuera de muestra (solo partidos con cuotas)."""
+    con = [p for p in preds if None not in p["c"]]
+    if len(con) < 40:
+        return 1.0, {}
+    res = np.array([0 if p["gl"] > p["gv"] else 1 if p["gl"] == p["gv"] else 2 for p in con])
+    ll = {a: _logloss([mezcla_mercado(p["p"], p["c"], a) for p in con], res) for a in np.round(np.arange(0, 1.01, 0.1), 1)}
+    alpha = min(ll, key=ll.get)
+    return float(alpha), {"n": len(con), "modelo": round(ll[1.0], 4), "mercado": round(ll[0.0], 4),
+                          "combinado": round(ll[alpha], 4), "alpha": float(alpha)}
+
+
 def prob_1x2(mod, local, visita):
     l, m = lambdas(mod, local, visita)
     M = matriz(l, m, mod["rho"])
@@ -420,29 +486,42 @@ def prob_1x2(mod, local, visita):
 
 
 # ----------------------------------------------------------------------------- backtest
-def backtest(jug, inicios):
+PESOS_XG = [1.0, 0.75, 0.5, 0.25, 0.0]     # peso del modelo de goles (el resto, del de tiros)
+
+
+def backtest(jug, inicios, con_xg=False):
     """Reajusta cada semana con datos previos y predice la semana siguiente (fuera de muestra).
-    Cubre la temporada pasada completa y lo que va de la actual."""
+    Cubre la temporada pasada completa y lo que va de la actual. Con con_xg, cada semana ajusta también el modelo de
+    tiros y elige el peso de la combinación que mejor pronostica. Devuelve (preds, métricas, peso, log-loss por peso)."""
     if len(inicios) < 2:
-        return [], {}
+        return [], {}, 1.0, {}
     desde = inicios[-2]
     act = jug[jug["fecha"] >= desde].sort_values("fecha")
     corte = desde + timedelta(days=21)   # dejamos 3 semanas de arranque
     fin = act["fecha"].iloc[-1]
-    preds = []
+    pesos = PESOS_XG if con_xg else [1.0]
+    preds = {w: [] for w in pesos}
     while corte <= fin:
         sem = act[(act["fecha"] >= corte) & (act["fecha"] < corte + timedelta(days=7))]
         if len(sem):
-            mod = ajusta_dixon_coles(jug, corte, inicios)
-            for r in sem.itertuples():
-                p1, px, p2, M = prob_1x2(mod, r.local, r.visita)
-                pover = float(sum(M[i, j] for i in range(MAX_GOLES + 1) for j in range(MAX_GOLES + 1) if i + j > 2))
-                preds.append({"fecha": r.fecha.isoformat(), "local": r.local, "visita": r.visita,
-                              "gl": int(r.gl), "gv": int(r.gv), "p": [round(p1, 4), round(px, 4), round(p2, 4)],
-                              "pover": round(pover, 4),
-                              "c": [None if pd.isna(v) else float(v) for v in (r.c1, r.cx, r.c2)]})
+            mg = ajusta_dixon_coles(jug, corte, inicios)
+            mx = ajusta_dixon_coles(jug, corte, inicios, objetivo="xg") if con_xg else None
+            for w in pesos:
+                mod = combina_modelos(mg, mx, w)
+                for r in sem.itertuples():
+                    p1, px, p2, M = prob_1x2(mod, r.local, r.visita)
+                    pover = float(M[np.add.outer(np.arange(MAX_GOLES + 1), np.arange(MAX_GOLES + 1)) > 2].sum())
+                    preds[w].append({"fecha": r.fecha.isoformat(), "local": r.local, "visita": r.visita,
+                                     "gl": int(r.gl), "gv": int(r.gv), "p": [round(p1, 4), round(px, 4), round(p2, 4)],
+                                     "pover": round(pover, 4),
+                                     "c": [None if pd.isna(v) else float(v) for v in (r.c1, r.cx, r.c2)]})
         corte += timedelta(days=7)
-    return preds, metricas(preds, jug[jug["fecha"] < desde])
+    if not preds[1.0]:
+        return [], {}, 1.0, {}
+    res = np.array([0 if p["gl"] > p["gv"] else 1 if p["gl"] == p["gv"] else 2 for p in preds[1.0]])
+    ll = {w: _logloss([p["p"] for p in preds[w]], res) for w in pesos}
+    w = min(ll, key=ll.get)
+    return preds[w], metricas(preds[w], jug[jug["fecha"] < desde]), w, {str(k): round(v, 4) for k, v in ll.items()}
 
 
 def metricas(preds, hist):
@@ -952,7 +1031,9 @@ def procesa_copa(clave):
     mod, muestras = modelo_copa_estandar(ajuste, bases, equipos)
     COPA_MOD[clave] = mod
     preds, met = val.get(elegida, ([], {}))
+    alpha, info_mezcla = elige_mezcla(preds)
     if met:
+        met["mezcla"] = info_mezcla
         met["difiere15"] = _difiere(preds)
         met["versiones"] = {k: {"logloss": round(v[1]["logloss"], 4), "mercado": round(v[1].get("logloss_mercado", float("nan")), 4),
                                 "difiere15": _difiere(v[0]), "n": v[1]["n"]} for k, v in val.items()}
@@ -964,6 +1045,7 @@ def procesa_copa(clave):
     for k, (p, m) in val.items():
         print(f"    validación {k}: {m['n']} partidos, log-loss {m['logloss']:.3f} (base {m['logloss_base']:.3f}"
               + (f", mercado {m['logloss_mercado']:.3f}" if "logloss_mercado" in m else "") + f"), difieren >15 pts del mercado: {_difiere(p)}")
+    print(f"    mezcla con mercado: α={alpha} {info_mezcla}")
     predmap = {(p["fecha"], p["local"]): p for p in preds}
 
     th = muestras(_rng(clave))
@@ -995,7 +1077,7 @@ def procesa_copa(clave):
     fuente = ("valor de mercado (Transfermarkt) + fuerzas domésticas + " if elegida == "v2" else "fuerzas domésticas + ")
     return {"nombre": nombre, "origen": f"modelo propio: {fuente}{ajuste['n']} partidos europeos de ESPN",
             "actualizado": max(e["fecha"] for e in jugados).isoformat(), "inicio": ini_temp.isoformat(),
-            "temporada_sim": temporada,
+            "temporada_sim": temporada, "mezcla": {"alpha": alpha, "peso_goles": 1.0},
             "modelo": {"mu": mod["mu"], "home": mod["home"], "rho": mod["rho"],
                        "equipos": {e: [round(mod["ataque"][e], 4), round(mod["defensa"][e], 4)] for e in mod["orden"]}},
             "tabla": estadisticas(act_fase, ini_fase) if len(act_fase) else [], "proximos": prox,
@@ -1242,9 +1324,21 @@ def procesa_liga(clave, fuente):
     act = jug[jug["fecha"] >= inicio]
 
     print(f"  {nombre}: {len(jug)} partidos ({origen}), temporada desde {inicio}, último {ultimo}")
+    xg = xg_aproximado(jug)
+    coef_xg = None
+    if xg:
+        jug, coef_xg = xg
+    preds, met, w_goles, ll_pesos = backtest(jug, inicios, con_xg=xg is not None)
     mod = ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, con_cov=True)
+    if w_goles < 1:
+        mod = combina_modelos(mod, ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, objetivo="xg"), w_goles)
     MODELOS[clave] = mod
-    preds, met = backtest(jug, inicios)
+    alpha, info_mezcla = elige_mezcla(preds)
+    if met:
+        met["xg"] = {"coef": coef_xg, "peso_goles": w_goles, "logloss_por_peso": ll_pesos}
+        met["mezcla"] = info_mezcla
+        print(f"  Tiros: {'xG = ' + str(coef_xg[0]) + '·a puerta + ' + str(coef_xg[1]) + '·desviados; ' if coef_xg else 'sin datos de tiros; '}"
+              f"peso goles {w_goles} (log-loss por peso {ll_pesos}); mezcla con mercado α={alpha} {info_mezcla}")
 
     proximos = fut[fut["fecha"] >= hoy].sort_values("fecha").head(40)
     t0 = datetime.now()
@@ -1275,6 +1369,7 @@ def procesa_liga(clave, fuente):
     PENDIENTES_SIM.append({"clave": clave, "codigo": ESPN_LIGA.get(clave), "mod": mod, "th": th, "filas": prox_filas, "ids": []})
     return {"nombre": nombre, "origen": origen, "actualizado": ultimo.isoformat(), "inicio": inicio.isoformat(),
             "temporada_sim": temporada, "espn": MAPAS.get(clave, {}),     # nombre ESPN -> nombre del modelo (pestaña En vivo)
+            "mezcla": {"alpha": alpha, "peso_goles": w_goles},
             "modelo": {"mu": mod["mu"], "home": mod["home"], "rho": mod["rho"],
                        "equipos": {e: [round(mod["ataque"][e], 4), round(mod["defensa"][e], 4)] for e in mod["ataque"]
                                    if e in set(act["local"]) | set(act["visita"])},
@@ -1338,7 +1433,26 @@ def main():
                 r["sim"] = simula_partido(p["mod"], p["th"], r["local"], r["visita"], _rng(p["clave"], f"{r['fecha']}{r['local']}{r['visita']}"))
     valores.guarda_cache(CACHE_V)
     print(f"  listo en {(datetime.now() - t0).total_seconds():.0f} s")
+    data["apuestas_archivo"] = lee_apuestas()
     escribe_pagina(data, args.salida)
+
+
+def lee_apuestas():
+    """apuestas.csv (el que exporta la pestaña Mis apuestas) para mostrarlo en la página con su CLV y resultado."""
+    import os
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apuestas.csv")
+    if not os.path.exists(ruta):
+        return []
+    try:
+        df = pd.read_csv(ruta, encoding="utf-8-sig")
+        out = [{"id": f"csv{i}", "comp": r["competicion"], "fecha": str(r["fecha"]), "local": r["local"], "visita": r["visita"],
+                "sel": str(r["seleccion"]), "cuota": float(r["cuota"]), "monto": float(r["monto"]),
+                "casa": "" if pd.isna(r.get("casa")) else str(r["casa"])} for i, r in df.iterrows()]
+        print(f"apuestas.csv: {len(out)} apuestas registradas")
+        return out
+    except Exception as e:  # noqa: BLE001
+        print("apuestas.csv no se pudo leer:", e)
+        return []
 
 
 def escribe_pagina(data, salida):

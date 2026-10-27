@@ -20,6 +20,23 @@ Se maximiza la log-verosimilitud **ponderada y penalizada**:
 - **Penalización ridge** (0.6 · Σ α² + δ²): acerca las fuerzas a cero, es decir, al equipo promedio. Evita valores extremos con pocos partidos y resuelve la identificación entre μ y las fuerzas. Los equipos recién ascendidos se acercan a un valor más débil que el promedio.
 - **Optimizador:** L-BFGS-B con límites (h en [−1, 1], ρ en [−0.3, 0.3], fuerzas en [−3, 3]).
 
+### 2.1 Fuerza basada en tiros (xG aproximado)
+
+Los goles tienen mucho azar; los tiros miden mejor cuántas ocasiones genera y concede un equipo.
+
+- En las ligas con tiros (todas menos Liga MX), se calcula un **xG aproximado** por partido: xG = a · tiros a puerta + b · tiros desviados, con a y b estimados por mínimos cuadrados con los goles de esa liga.
+- Se ajusta un segundo modelo con las mismas fuerzas, pero usando el xG como variable a explicar (verosimilitud Poisson con valores no enteros, sin corrección ρ).
+- Las fuerzas finales son w · (modelo de goles) + (1 − w) · (modelo de tiros) en escala logarítmica. El peso w ∈ {1, 0.75, 0.5, 0.25, 0} se elige en la prueba fuera de muestra semanal: es el que da menor log-loss.
+- La incertidumbre para Montecarlo se toma del modelo de goles.
+
+### 2.2 Combinación con el mercado
+
+Las cuotas de cierre resumen información que el modelo no ve. La probabilidad **combinada** es p ∝ p_modelo^α · p_mercado^(1−α) (combinación logarítmica), con el mercado sin margen.
+
+- α ∈ {0, 0.1, …, 1} se elige con los partidos de la prueba fuera de muestra que tienen cuotas: cuotas de cierre de Pinnacle en las ligas y DraftKings en las copas.
+- Advertencia: α se elige con esa misma muestra, que es grande en ligas y pequeña en copas.
+- En la página, el valor esperado de una apuesta se calcula con la probabilidad combinada cuando hay cuotas. Si α es bajo, eso significa que el mercado pronostica mejor y que el modelo aporta poco.
+
 ## 3. Incertidumbre de los parámetros
 
 Los parámetros estimados θ̂ no se conocen con certeza. Para llevar esa incertidumbre a las probabilidades se usa una **aproximación de Laplace**: θ ~ Normal(θ̂, Σ̂), donde Σ̂ es la inversa del Hessiano de la log-verosimilitud penalizada evaluado en θ̂.
