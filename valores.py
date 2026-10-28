@@ -89,16 +89,23 @@ def _fresco(fecha):
         return False
 
 
+_FALLAS_TM = [0]       # fallas seguidas; desde la nube Transfermarkt a veces bloquea y no hay que insistir
+
+
 def _tm(url):
-    for i in range(3):
+    if _FALLAS_TM[0] >= 3:
+        raise RuntimeError("Transfermarkt bloqueado en esta corrida; se usan los datos guardados")
+    for i in range(2):
         try:
-            r = HTTP.get(TM + url, timeout=30)
+            r = HTTP.get(TM + url, timeout=15)
             if r.status_code == 200:
+                _FALLAS_TM[0] = 0
                 time.sleep(1.2)
                 return r.text
         except requests.RequestException:
             pass
-        time.sleep(3 * (i + 1))
+        time.sleep(2)
+    _FALLAS_TM[0] += 1
     raise RuntimeError(f"Transfermarkt no respondió: {url}")
 
 
@@ -138,10 +145,11 @@ def plantilla(tm_id):
 
 
 def valores_clubes(cache, log=print):
-    """{nombre normalizado TM: (id, nombre, valor)} de todas las ligas de LIGAS_TM, con caché semanal."""
+    """{nombre normalizado TM: (id, nombre, valor)} de todas las ligas de LIGAS_TM, con caché semanal.
+    Si Transfermarkt no responde, se usan los datos guardados aunque tengan más de 7 días."""
     c = cache.setdefault("ligas", {})
     for cod in LIGAS_TM:
-        if cod in c and _fresco(c[cod]["fecha"]):
+        if cod in c and (_fresco(c[cod]["fecha"]) or _FALLAS_TM[0] >= 3):
             continue
         try:
             c[cod] = {"fecha": date.today().isoformat(), "clubes": clubes_liga(cod)}
@@ -163,7 +171,9 @@ def asigna_club(nombre_espn, candidatos, minimo=0.6):
 def plantillas(cache, tm_ids, log=print):
     c = cache.setdefault("plantillas", {})
     for i in tm_ids:
-        if i in c and _fresco(c[i]["fecha"]):
+        if i in c and (_fresco(c[i]["fecha"]) or _FALLAS_TM[0] >= 3):
+            continue
+        if _FALLAS_TM[0] >= 3:
             continue
         try:
             c[i] = {"fecha": date.today().isoformat(), "jugadores": plantilla(i)}

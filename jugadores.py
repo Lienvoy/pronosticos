@@ -157,7 +157,7 @@ def lesiones_fpl():
 def lesiones_transfermarkt(codigo):
     """Tabla de lesionados de Transfermarkt. Columnas: jugador/posición, club, lesión, desde, regreso, valor."""
     from lxml import html as lh
-    r = HTTP.get(f"https://www.transfermarkt.com/liga/verletztespieler/wettbewerb/{codigo}", timeout=30)
+    r = HTTP.get(f"https://www.transfermarkt.com/liga/verletztespieler/wettbewerb/{codigo}", timeout=15)
     r.raise_for_status()
     time.sleep(1.0)
     doc = lh.fromstring(r.text)

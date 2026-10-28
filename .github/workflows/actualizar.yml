@@ -23,7 +23,7 @@ concurrency:                  # una corrida a la vez; si llega otra mientras tan
 jobs:
   actualizar:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       TZ: America/Mexico_City   # "hoy" y los próximos partidos en hora de México
       PYTHONIOENCODING: utf-8
@@ -53,6 +53,8 @@ jobs:
       - name: Descargar datos y generar la página
         run: |
           mkdir -p _site
+          # sin caché previa se arranca con la semilla generada en la PC (por si Transfermarkt bloquea a GitHub)
+          for f in cache_valores.json cache_jugadores.json; do [ -f "$f" ] || cp "semilla/$f" "$f"; done
           MODO=""
           if [ "${{ github.event.schedule }}" = "*/30 * * * *" ] && [ -f cache_jugadores.json ]; then MODO="--rapido"; fi
           echo "Modo: ${MODO:-completo}"
