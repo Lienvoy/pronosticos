@@ -4,7 +4,9 @@ name: Actualizar tablero
 
 on:
   schedule:
-    - cron: "15 */2 * * *"     # cada 2 horas (hora UTC); GitHub puede retrasarlo algunos minutos
+    - cron: "*/30 * * * *"     # rápida: resultados, próximos, cuotas, alineaciones y simulaciones (reusa jugadores)
+    - cron: "5 */6 * * *"      # completa: además jugadores, lesiones, noticias y valores de mercado
+    # Horas en UTC; GitHub suele retrasar los horarios unos minutos. El marcador En vivo de la página va aparte, cada 60 s.
   workflow_dispatch:            # botón "Run workflow" para actualizar a mano
   push:
     branches: [main]
@@ -14,7 +16,7 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
+concurrency:                  # una corrida a la vez; si llega otra mientras tanto, espera su turno
   group: pages
   cancel-in-progress: false
 
@@ -38,10 +40,23 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # lo pesado se reutiliza entre corridas: valores de mercado y alineaciones (Transfermarkt se refresca cada 7 días)
+      # y los jugadores/lesiones/noticias de la última corrida completa
+      - uses: actions/cache@v4
+        with:
+          path: |
+            cache_valores.json
+            cache_jugadores.json
+          key: datos-${{ github.run_id }}
+          restore-keys: datos-
+
       - name: Descargar datos y generar la página
         run: |
           mkdir -p _site
-          python -u actualizar_datos.py --salida _site/index.html
+          MODO=""
+          if [ "${{ github.event.schedule }}" = "*/30 * * * *" ] && [ -f cache_jugadores.json ]; then MODO="--rapido"; fi
+          echo "Modo: ${MODO:-completo}"
+          python -u actualizar_datos.py --salida _site/index.html $MODO
 
       - uses: actions/upload-pages-artifact@v3
         with:

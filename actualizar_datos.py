@@ -18,6 +18,7 @@ import argparse
 import io
 import json
 import math
+import os
 import sys
 from datetime import date, datetime, timedelta
 
@@ -86,6 +87,8 @@ def _cuotas_fd(df):
         "c2": ["PSCA", "PSA", "AvgCA", "AvgA", "B365A"],
         "co25": ["PC>2.5", "P>2.5", "AvgC>2.5", "Avg>2.5"],
         "cu25": ["PC<2.5", "P<2.5", "AvgC<2.5", "Avg<2.5"],
+        # mejor cuota entre todas las casas que reporta football-data (Bet365, Betway, BetVictor, William Hill…)
+        "b1": ["MaxCH", "MaxH"], "bx": ["MaxCD", "MaxD"], "b2": ["MaxCA", "MaxA"],
     }.items():
         serie = pd.Series(np.nan, index=df.index)
         for c in opciones:
@@ -160,7 +163,7 @@ def carga_openfootball(codigo):
                           "gl_mt": ht[0] if ht else np.nan, "gv_mt": ht[1] if ht else np.nan,
                           "temporada": t})
     df = pd.DataFrame(filas)
-    for n in list(FD_COLS.values()) + ["c1", "cx", "c2", "co25", "cu25"]:
+    for n in list(FD_COLS.values()) + ["c1", "cx", "c2", "co25", "cu25", "b1", "bx", "b2"]:
         df[n] = np.nan
     jugados = df.dropna(subset=["gl"])
     futuros = df[df["gl"].isna() & (df["temporada"] == OF_ACTUAL)]
@@ -276,7 +279,7 @@ def complemento_espn(clave, jug, fut):
     def ya_esta(df, f, l):
         return bool(len(df)) and ((df["local"] == l) & df["fecha"].map(lambda x: abs((x - f).days) <= 1)).any()
 
-    cols = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25"]
+    cols = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25", "b1", "bx", "b2"]
     jugados, proximos = [], []
     for e in eventos:
         l, v = mapa.get(e["local"]), mapa.get(e["visita"])
@@ -738,7 +741,7 @@ ESPN_COPAS = {"ucl": ("uefa.champions", "Champions League"), "uel": ("uefa.europ
 GRUPOS = list(ESPN_LIGA) + ["otras"]
 RIDGE_LIGA, RIDGE_OTROS = 0.5, 2.0       # la desviación de clubes de otras ligas se encoge fuerte hacia la media
 COPA_DESDE = date(2025, 7, 1)
-COLS_FILA = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25"]
+COLS_FILA = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25", "b1", "bx", "b2"]
 
 
 def eventos_copa(codigo):
@@ -1353,7 +1356,7 @@ def procesa_liga(clave, fuente):
           + f" en {(datetime.now() - t0).total_seconds():.1f} s")
     recientes = act.sort_values("fecha", ascending=False)      # toda la temporada, para filtrar por equipo
     predmap = {(p["fecha"], p["local"]): p for p in preds}
-    cols = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25"]
+    cols = ["fecha", "local", "visita", "gl", "gv", "gl_mt", "gv_mt", *FD_COLS.values(), "c1", "cx", "c2", "co25", "cu25", "b1", "bx", "b2"]
     def filas(df):
         out = []
         for r in df[cols].to_dict("records"):
@@ -1384,15 +1387,28 @@ def main():
     ap.add_argument("--fuente", default="auto", choices=["auto", "football-data", "openfootball"])
     ap.add_argument("--salida", default="index.html")
     ap.add_argument("--sin-jugadores", action="store_true", help="omite plantillas, lesiones y noticias (más rápido)")
+    ap.add_argument("--rapido", action="store_true",
+                    help="reutiliza jugadores, lesiones y noticias de la última corrida completa (cache_jugadores.json)")
     args = ap.parse_args()
     data = {"generado": datetime.now().isoformat(timespec="minutes"), "ligas": {}, "copas": {}, "elo": None}
     CACHE_V.update(valores.carga_cache())
+    ruta_jug = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache_jugadores.json")
     # primero jugadores: las lesiones y suspensiones se usan para armar el XI esperado de cada partido
-    if not args.sin_jugadores:
+    if args.rapido and os.path.exists(ruta_jug):
+        with open(ruta_jug, encoding="utf-8") as f:
+            data["jugadores"] = json.load(f)
+        print(f"Jugadores: se reutilizan los de {data['jugadores'].get('generado', '?')} (modo rápido)")
+    elif not args.sin_jugadores:
         print("Jugadores (ESPN, Fantasy PL, Transfermarkt); tarda 3 a 5 minutos")
         try:
             from jugadores import recopila
             data["jugadores"] = recopila()
+            with open(ruta_jug, "w", encoding="utf-8") as f:
+                json.dump(data["jugadores"], f, ensure_ascii=False)
+        except Exception as e:  # noqa: BLE001
+            print("  jugadores no disponibles:", e)
+    if data.get("jugadores"):
+        try:
             for comp in data["jugadores"]["competiciones"].values():
                 for j in comp["jugadores"]:
                     if (j.get("lesion") or {}).get("estado") in ("Lesionado", "Suspendido", "Baja"):

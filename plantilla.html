@@ -157,8 +157,8 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 <script>
 (() => {
 const D = window.DATOS || { ligas: {}, copas: {} };
-const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["equipos","★ Mis equipos"],["vivo","● En vivo"],["pick","Pick del finde"],["apuestas","Mis apuestas"]];
-const GLOBALES = { equipos: v => equiposVista(v), vivo: v => vivoVista(v), pick: v => pickVista(v), apuestas: v => apuestasVista(v) };
+const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["equipos","★ Mis equipos"],["vivo","● En vivo"],["pick","Pick del finde"],["probables","Picks más probables"],["apuestas","Mis apuestas"]];
+const GLOBALES = { equipos: v => equiposVista(v), vivo: v => vivoVista(v), pick: v => pickVista(v), probables: v => probablesVista(v), apuestas: v => apuestasVista(v) };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
@@ -637,10 +637,50 @@ function tarjetaEquipo(k, n, idx) {
       return `<div class="form small"><span class="${c}">${c}</span> ${a}-${b} ${loc ? "vs" : "en"} ${esc(loc ? r.visita : r.local)} <span class="mono">${fechaCorta(r.fecha)}</span></div>` }).join("") || '<span class="small">Sin resultados esta temporada.</span>'}</div>
     ${t ? `<h3>Números de la temporada</h3><div class="meta"><span>GF ${t.gf} · GC ${t.gc}</span><span>Forma ${esc(t.forma)}</span>${t.tiros != null ? `<span>Tiros ${f2(t.tiros)} (a puerta ${f2(t.arco)})</span>` : ""}${xg != null ? `<span>xG aprox. ${f2(xg)}/partido</span>` : ""}<span>+2.5: ${pct(t.over25)}</span></div>` : ""}
     ${s ? `<h3>Proyección</h3><div class="meta"><span>Puntos esperados ${s.pts_esp.toFixed(1)} (${s.pts_p5_p95[0]}–${s.pts_p5_p95[1]})</span><span>${esc(T.etiqueta1)} ${pct(s.p1, 1)}</span><span>${esc(T.etiqueta_arriba)} ${pct(s.parriba, 1)}</span>${T.n_desc ? `<span>${/Champions|Europa/.test(L.nombre) ? "Eliminado" : "Descenso"} ${pct(s.pdesc, 1)}</span>` : ""}</div>` : ""}
+    ${enCopas(k, n).map(([c, nc]) => copaHtml(c, nc)).join("")}
     ${goleadores.length ? `<h3>Goleadores</h3><div class="meta">${goleadores.map(j => `<span>${esc(j.nombre)} ${j.goles}${j.asist ? ` (+${j.asist} asist.)` : ""}</span>`).join("")}</div>` : ""}
     ${bajas.length ? `<h3>Bajas</h3><div style="display:grid;gap:2px">${bajas.slice(0, 6).map(j => `<div class="small">${estadoHtml(j.lesion)} ${esc(j.nombre)}${j.lesion.detalle ? ` · ${esc(j.lesion.detalle)}` : ""}</div>`).join("")}</div>` : ""}
     ${news.length ? `<h3>Noticias</h3><div class="news">${news.map(noticia).join("")}</div>` : ""}
   </div>`;
+}
+// favoritos de Juan Pablo: se cargan una vez (si ya había selección, se agregan sin duplicar)
+const FAVORITOS = [["laliga", "Real Madrid"], ["ligamx", "Guadalajara Chivas"], ["eredivisie", "Ajax"], ["premier", "Tottenham"],
+  ["premier", "Man United"], ["seriea", "Inter"], ["seriea", "Juventus"], ["bundesliga", "Dortmund"], ["bundesliga", "Leverkusen"],
+  ["ligue1", "Marseille"], ["ligue1", "Paris SG"]];
+function misEquipos() {
+  if (!store.get("favoritos_v1", false)) {
+    const m = store.get("equipos", []);
+    FAVORITOS.forEach(p => { if (!m.some(x => x[0] === p[0] && x[1] === p[1])) m.push(p) });
+    store.set("equipos", m); store.set("favoritos_v1", true);
+  }
+  return store.get("equipos", []).filter(([k, n]) => D.ligas[k] && D.ligas[k].modelo.equipos[n]);
+}
+// nombre del club en las copas (ESPN) a partir del nombre en su liga (football-data)
+function enCopas(k, n) {
+  const L = D.ligas[k], espn = L.espn ? Object.keys(L.espn).find(e => L.espn[e] === n) : n, out = [];
+  ["ucl", "uel"].forEach(c => { const C = D.ligas[c]; if (C && k !== c && espn && C.modelo.equipos[espn]) out.push([c, espn]) });
+  return out;
+}
+function copaHtml(c, n) {
+  const C = D.ligas[c], nombre = ORDEN.find(o => o[0] === c)[1], pos = C.tabla.findIndex(r => r.equipo === n), t = C.tabla[pos];
+  const s = C.temporada_sim && C.temporada_sim.tabla.find(r => r.equipo === n), prox = C.proximos.find(r => r.local === n || r.visita === n);
+  const p = prox ? (({ pm, pc }) => pc || pm)(probsFila(prox, C)) : null;
+  return `<h3>${esc(nombre)}</h3><div class="meta">${t ? `<span>${pos + 1}º de la fase con ${t.pts} pts en ${t.pj} PJ</span>` : ""}
+    ${s ? `<span>Top 8: ${pct(s.parriba)}</span><span>Eliminado: ${pct(s.pdesc)}</span>` : ""}
+    ${prox ? `<span>Próximo: ${prox.local === n ? "vs" : "en casa de"} ${esc(prox.local === n ? prox.visita : prox.local)} ${fechaCorta(prox.fecha)} · ${p.map(x => pct(x)).join(" / ")}</span>` : ""}</div>`;
+}
+function destacadosHtml(fav) {
+  return COMPS().filter(([k]) => !["ucl", "uel"].includes(k)).map(([k, nombre]) => {
+    const L = D.ligas[k], E = L.modelo.equipos;
+    const top = Object.keys(E).filter(e => L.tabla.some(r => r.equipo === e)).sort((a, b) => (E[b][0] - E[b][1]) - (E[a][0] - E[a][1])).slice(0, 4);
+    fav.filter(([kk, n]) => kk === k && !top.includes(n)).forEach(([, n]) => top.push(n));
+    return `<div><h3>${esc(nombre)}</h3><table class="mk"><tbody>${top.map(n => {
+      const pos = L.tabla.findIndex(r => r.equipo === n), t = L.tabla[pos], prox = L.proximos.find(r => r.local === n || r.visita === n);
+      const p = prox ? (({ pm, pc }) => pc || pm)(probsFila(prox, L)) : null, esFav = fav.some(([kk, nn]) => kk === k && nn === n);
+      return `<tr><td>${esFav ? "★ " : ""}<b>${esc(n)}</b> <span class="small">${t ? pos + 1 + "º · " + t.pts + " pts" : ""}</span></td>
+        <td class="form">${t ? [...t.forma].map(c => `<span class="${c}">${c}</span>`).join("") : ""}</td>
+        <td class="small">${prox ? `${prox.local === n ? "vs" : "en"} ${esc(prox.local === n ? prox.visita : prox.local)} ${fechaCorta(prox.fecha)}: ${p.map(x => pct(x)).join("/")}` : "–"}</td></tr>` }).join("")}</tbody></table></div>`;
+  }).join("");
 }
 function equiposVista(v) {
   const comps = COMPS();
@@ -649,17 +689,19 @@ function equiposVista(v) {
       <label for="qc" style="flex:0 1 180px">Competición<select id="qc">${comps.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
       <label for="qe">Equipo<select id="qe"></select></label>
       <button class="btn" id="qadd" style="align-self:end">Agregar a mis equipos</button></div>
-    <div id="tarjetas" class="tarjetas"></div></div>`;
+    <div id="tarjetas" class="tarjetas"></div>
+    <details class="panel"><summary>Destacados de cada liga (los 4 más fuertes según el modelo, más tus favoritos)</summary>
+      <div class="tarjetas" style="margin-top:12px">${destacadosHtml(misEquipos())}</div></details></div>`;
   const llena = () => { const L = D.ligas[$("#qc").value];
     $("#qe").innerHTML = Object.keys(L.modelo.equipos).sort((a, b) => a.localeCompare(b, "es")).map(e => `<option>${esc(e)}</option>`).join("") };
   $("#qc").onchange = llena; llena();
   $("#qadd").onclick = () => { const m = store.get("equipos", []), par = [$("#qc").value, $("#qe").value];
     if (!m.some(x => x[0] === par[0] && x[1] === par[1])) { m.push(par); store.set("equipos", m) } pinta() };
   function pinta() {
-    const mios = store.get("equipos", []).filter(([k, n]) => D.ligas[k]);
+    const mios = misEquipos();
     $("#tarjetas").innerHTML = mios.map(([k, n], i) => tarjetaEquipo(k, n, i)).join("")
       || `<div class="panel empty"><p>Elige arriba tus equipos (de cualquier competición) y aquí verás de cada uno su próximo partido con probabilidades, últimos resultados, posición y proyección, números de la temporada, goleadores, bajas y noticias.</p></div>`;
-    $("#tarjetas").querySelectorAll("[data-quita]").forEach(b => b.onclick = () => { const m = store.get("equipos", []).filter(([k]) => D.ligas[k]); m.splice(+b.dataset.quita, 1); store.set("equipos", m); pinta() });
+    $("#tarjetas").querySelectorAll("[data-quita]").forEach(b => b.onclick = () => { const m = misEquipos(); m.splice(+b.dataset.quita, 1); store.set("equipos", m); pinta() });
     $("#tarjetas").querySelectorAll("[data-te]").forEach(b => b.onclick = () => {
       const [k, n] = mios[+b.dataset.te], L = D.ligas[k], r = L.proximos.find(x => x.local === n || x.visita === n), box = $("#te-" + b.dataset.te);
       if (!box.innerHTML) box.innerHTML = simHtml(r.sim, r.local, r.visita, L, r);
@@ -715,6 +757,54 @@ function pickVista(v) {
     store.set("apuestas", a); b.textContent = "Registrada ✓"; b.disabled = true });
 }
 
+// ---------- Picks más probables: por liga, lo más probable de la jornada (más probable no significa seguro)
+function mercadosPartido(r, L) {
+  const { pm, pc } = probsFila(r, L), p = pc || pm;
+  const c = [r.c1, r.cx, r.c2], b = [r.b1, r.bx, r.b2].map((x, i) => x > 1 ? x : c[i]);
+  const h = r.sim && r.sim.hist_total, mas15 = h ? 1 - h[0] - h[1] : null;
+  // doble oportunidad: cuota aproximada a partir de las cuotas 1X2 (la casa suele pagar algo parecido o un poco menos)
+  const dc = (i, j) => c[i] > 1 && c[j] > 1 ? 1 / (1 / c[i] + 1 / c[j]) : null;
+  const out = [
+    { tipo: "1X2", sel: "1", nombre: `Gana ${r.local}`, p: p[0], cuota: b[0], aprox: false },
+    { tipo: "1X2", sel: "X", nombre: "Empate", p: p[1], cuota: b[1], aprox: false },
+    { tipo: "1X2", sel: "2", nombre: `Gana ${r.visita}`, p: p[2], cuota: b[2], aprox: false },
+    { tipo: "Doble oportunidad", sel: "1X", nombre: `${r.local} o empate`, p: p[0] + p[1], cuota: dc(0, 1), aprox: true },
+    { tipo: "Doble oportunidad", sel: "X2", nombre: `Empate o ${r.visita}`, p: p[1] + p[2], cuota: dc(1, 2), aprox: true }];
+  if (mas15 != null) out.push({ tipo: "Goles", sel: "+1.5", nombre: "Más de 1.5 goles", p: mas15, cuota: null, aprox: false },
+                              { tipo: "Goles", sel: "-1.5", nombre: "Menos de 1.5 goles", p: 1 - mas15, cuota: null, aprox: false });
+  return out.map(x => ({ ...x, r, ev: x.cuota > 1 ? x.p * x.cuota - 1 : null }));
+}
+const etiquetaValor = ev => ev == null ? '<span class="small">sin cuota: búscala en tu casa</span>'
+  : ev > 0.02 ? `<span class="pill val">valor +${pct(ev, 1)}</span>` : ev >= -0.02 ? `<span class="pill neg">justo (${ev >= 0 ? "+" : ""}${pct(ev, 1)})</span>`
+  : `<span class="pill neg">la casa cobra de más (${pct(ev, 1)})</span>`;
+function probablesVista(v) {
+  const hoy = new Date(new Date().toDateString()), limite = new Date(Date.now() + 7 * 864e5), B = bankEstado();
+  const bloques = COMPS().map(([k, nombre]) => {
+    const L = D.ligas[k];
+    const todos = (L.proximos || []).filter(r => { const f = new Date(r.fecha + "T12:00"); return f >= hoy && f <= limite }).flatMap(r => mercadosPartido(r, L));
+    if (!todos.length) return "";
+    const grupo = tipo => todos.filter(x => x.tipo === tipo).sort((a, b) => b.p - a.p).slice(0, 3);
+    const fila = x => {
+      const f = x.p >= 0.65 ? 0.03 : 0.01, monto = Math.round(Math.max(0, B.saldo) * f), id = `${k}|${x.r.fecha}|${x.r.local}|${x.sel}`;
+      return `<tr><td><b>${esc(x.nombre)}</b><div class="small">${esc(x.r.local)} vs ${esc(x.r.visita)} · ${fechaCorta(x.r.fecha)}</div></td>
+        <td class="n"><b>${pct(x.p)}</b></td><td class="n">1 de cada ${x.p < 1 ? Math.round(1 / (1 - x.p)) : "∞"}</td><td class="n">${f2(1 / x.p)}</td>
+        <td class="n">${x.cuota > 1 ? f2(x.cuota) + (x.aprox ? " ≈" : "") : "–"}</td><td>${etiquetaValor(x.ev)}</td>
+        <td>${x.cuota > 1 && B.ini > 0 && B.saldo > 0 ? `<button class="btn simbtn" data-prob="${esc(id)}" data-cuota="${x.cuota.toFixed(2)}" data-monto="${monto}">Registrar $${monto}</button>` : ""}</td></tr>`;
+    };
+    const tabla = (titulo, xs) => xs.length ? `<h3 style="margin-top:8px">${titulo}</h3><div class="scroll"><table><thead><tr><th>Apuesta</th><th class="n">Prob.</th><th class="n">Falla</th><th class="n">Cuota justa</th><th class="n">Mejor cuota</th><th>Valor</th><th></th></tr></thead><tbody>${xs.map(fila).join("")}</tbody></table></div>` : "";
+    return `<details class="panel" ${k === "ucl" ? "open" : ""}><summary>${esc(nombre)}</summary>
+      ${tabla("Resultado (1X2)", grupo("1X2"))}${tabla("Doble oportunidad", grupo("Doble oportunidad"))}${tabla("Goles", grupo("Goles"))}</details>`;
+  }).join("");
+  v.innerHTML = `<div style="display:grid;gap:12px">
+    <p class="warn"><b>Más probable no significa seguro.</b> Una cuota de 1.20 falla 1 de cada 6 veces. Casi siempre estos picks salen "la casa cobra de más": son lo más probable, pero la cuota ya lo descuenta. No se sugieren combinadas.</p>
+    <p class="small" style="margin:0">Por competición, los 3 resultados más probables de los próximos 7 días en cada mercado, según la probabilidad combinada (modelo + mercado) y, en goles, la simulación. "Mejor cuota": la más alta entre las casas que reporta football-data (o la de ESPN); en doble oportunidad (≈) es aproximada a partir de las cuotas 1X2. Monto sugerido del bank cerrado: 3% si la probabilidad es 65% o más, 1% si es menor.</p>
+    ${bloques || '<div class="panel empty"><p>No hay partidos con cuotas en los próximos 7 días.</p></div>'}</div>`;
+  v.querySelectorAll("[data-prob]").forEach(b => b.onclick = () => {
+    const [comp, fecha, local, sel] = b.dataset.prob.split("|"), r = D.ligas[comp].proximos.find(x => x.fecha === fecha && x.local === local), a = store.get("apuestas", []);
+    a.push({ id: Date.now(), comp, fecha, local, visita: r.visita, sel, cuota: +b.dataset.cuota, monto: +b.dataset.monto, casa: "", tipo: "Probable" });
+    store.set("apuestas", a); b.textContent = "Registrada ✓"; b.disabled = true });
+}
+
 // ---------- bank cerrado: saldo = inicial + ganancias de las resueltas − lo apostado en pendientes
 function bankEstado() {
   const ini = +store.get("bank_inicial", 0) || 0;
@@ -736,12 +826,15 @@ function graficaBank(serie) {
 
 // ---------- registro de apuestas: se guarda en este navegador; CLV = tu cuota frente a la de cierre
 const SEL = { "1": 0, "X": 1, "2": 2 };
+// cuándo gana cada tipo de apuesta: 1X2, doble oportunidad y más/menos 1.5 goles
+const GANA = { "1": r => r.gl > r.gv, "X": r => r.gl === r.gv, "2": r => r.gl < r.gv, "1X": r => r.gl >= r.gv, "X2": r => r.gl <= r.gv,
+  "+1.5": r => r.gl + r.gv >= 2, "-1.5": r => r.gl + r.gv <= 1 };
 function estadoApuesta(a) {
   const L = D.ligas[a.comp], dias = f => Math.abs((new Date(f) - new Date(a.fecha)) / 864e5);
   const r = L && L.recientes.find(x => x.local === a.local && x.visita === a.visita && dias(x.fecha) <= 1);
-  if (!r) return { estado: "Pendiente" };
-  const res = r.gl > r.gv ? 0 : r.gl === r.gv ? 1 : 2, gana = res === SEL[a.sel];
-  const cierre = [r.c1, r.cx, r.c2][SEL[a.sel]];
+  if (!r || !GANA[a.sel]) return { estado: "Pendiente" };
+  const gana = GANA[a.sel](r);
+  const cierre = a.sel in SEL ? [r.c1, r.cx, r.c2][SEL[a.sel]] : null;
   return { estado: gana ? "Ganada" : "Perdida", marcador: `${r.gl}-${r.gv}`, ganancia: gana ? a.monto * (a.cuota - 1) : -a.monto,
            cierre: cierre > 1 ? cierre : null, clv: cierre > 1 ? a.cuota / cierre - 1 : null };
 }
@@ -756,7 +849,7 @@ function apuestasVista(v) {
       <div class="calc-top">
         <label for="ac" style="flex:0 1 170px">Competición<select id="ac">${comps.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>
         <label for="ap">Partido<select id="ap"></select></label>
-        <label for="as" style="flex:0 1 120px">Apuesta<select id="as"><option value="1">1 (local)</option><option value="X">X (empate)</option><option value="2">2 (visita)</option></select></label>
+        <label for="as" style="flex:0 1 120px">Apuesta<select id="as"><option value="1">1 (local)</option><option value="X">X (empate)</option><option value="2">2 (visita)</option><option value="1X">1X (local o empate)</option><option value="X2">X2 (empate o visita)</option><option value="+1.5">Más de 1.5 goles</option><option value="-1.5">Menos de 1.5 goles</option></select></label>
         <label for="aq" style="flex:0 1 110px">Cuota<input id="aq" type="number" step="0.01" min="1.01" inputmode="decimal"></label>
         <label for="am" style="flex:0 1 110px">Monto<input id="am" type="number" step="10" min="0"></label>
         <label for="ak" style="flex:0 1 150px">Casa<input id="ak" type="text" placeholder="Opcional"></label>
@@ -768,7 +861,7 @@ function apuestasVista(v) {
   const llenaPartidos = () => { const L = D.ligas[$("#ac").value];
     $("#ap").innerHTML = (L.proximos || []).map((r, i) => `<option value="${i}">${r.fecha.slice(5).split("-").reverse().join("/")} · ${esc(r.local)} vs ${esc(r.visita)}</option>`).join("") || "<option>Sin partidos próximos</option>";
     pone(); };
-  const pone = () => { const r = (D.ligas[$("#ac").value].proximos || [])[+$("#ap").value]; if (r) $("#aq").value = [r.c1, r.cx, r.c2][SEL[$("#as").value]] || "" };
+  const pone = () => { const r = (D.ligas[$("#ac").value].proximos || [])[+$("#ap").value]; if (r) $("#aq").value = $("#as").value in SEL ? [r.c1, r.cx, r.c2][SEL[$("#as").value]] || "" : "" };
   $("#ac").onchange = llenaPartidos; $("#ap").onchange = pone; $("#as").onchange = pone;
   $("#aadd").onclick = () => {
     const comp = $("#ac").value, r = (D.ligas[comp].proximos || [])[+$("#ap").value], cuota = +$("#aq").value, monto = +$("#am").value;
