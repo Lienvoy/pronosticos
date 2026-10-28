@@ -7,3 +7,4 @@ cache_valores.json
 apuestas.csv
 .env
 cache_jugadores.json
+!semilla/*.json
