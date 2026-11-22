@@ -25,10 +25,47 @@
   --turf: #4fbf85; --turf-soft: #1c3428; --amber: #f0a43a; --amber-soft: #3a2a12;
   --red: #ec7d72; --red-soft: #3c1e1b; --draw: #8f9a95; --away: #7aaee0; color-scheme: dark }
 * { box-sizing: border-box }
-body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); margin: 0;
-  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px }
-.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px }
-header { padding-block: 22px 0; display: grid; gap: 14px }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); margin: 0; padding: 0 0 56px }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 24px;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)) }
+header { padding-block: 32px 0; display: grid; gap: 6px }
+/* barra superior fija */
+.topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--panel) 94%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--line) }
+.topbar-in { position: relative; max-width: 1120px; margin: 0 auto; min-height: 56px; display: flex; align-items: center; gap: 12px;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)) }
+.marca { font: 700 20px var(--f-display); letter-spacing: .02em; text-transform: uppercase; background: none; border: 0; color: var(--ink);
+  cursor: pointer; padding: 0; white-space: nowrap }
+.menu { list-style: none; margin: 0 0 0 auto; padding: 0; display: flex; align-items: center; gap: 2px }
+.nav { font: 600 15px var(--f-display); letter-spacing: .04em; text-transform: uppercase; background: none; border: 0; color: var(--muted);
+  padding: 8px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap }
+.nav:hover { color: var(--ink); background: var(--bg) }
+.nav[aria-current="page"], .nav.activo { color: var(--ink); box-shadow: inset 0 -3px 0 var(--turf); border-radius: 6px 6px 0 0 }
+.desp { position: relative }
+.desp-panel { position: absolute; top: calc(100% + 8px); left: 0; min-width: 230px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px; display: grid; gap: 2px; box-shadow: 0 12px 32px rgb(0 0 0 / .28); z-index: 30 }
+.desp-panel[hidden] { display: none }
+.derecha .desp-panel { left: auto; right: 0; min-width: 290px }
+.desp-panel .item { display: flex; justify-content: space-between; align-items: center; text-align: left; font: 600 15px var(--f-display);
+  text-transform: uppercase; letter-spacing: .04em; background: none; border: 0; color: var(--ink); padding: 8px 10px; border-radius: 6px; cursor: pointer }
+.desp-panel .item:hover { background: var(--bg) }
+.desp-panel .item[aria-pressed="true"] { background: var(--turf-soft); color: var(--turf) }
+.desp-panel .grupo { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px 2px }
+.punto { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--red); margin-right: 6px; vertical-align: middle }
+.menu-btn { display: none; margin-left: auto; background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px;
+  padding: 4px 12px; font-size: 20px; cursor: pointer }
+#ajustes .bank { border: 0; padding: 4px; background: none; flex-direction: column; align-items: stretch }
+#ajustes .bank input { width: 100% }
+@media (max-width: 960px) {
+  .menu-btn { display: block }
+  .menu { display: none; position: absolute; top: 100%; left: 0; right: 0; flex-direction: column; align-items: stretch; gap: 0;
+    background: var(--panel); border-bottom: 1px solid var(--line); padding: 8px max(16px, env(safe-area-inset-left, 0px)) 12px;
+    max-height: calc(100vh - 56px); overflow-y: auto }
+  .menu.abierto { display: flex }
+  .nav { width: 100%; text-align: left; padding: 12px }
+  .nav[aria-current="page"], .nav.activo { box-shadow: inset 3px 0 0 var(--turf); border-radius: 0 6px 6px 0 }
+  .desp-panel, .derecha .desp-panel { position: static; box-shadow: none; border: 0; padding: 0 0 8px 12px; min-width: 0 }
+}
 h1 { font: 700 34px/1 var(--f-display); letter-spacing: .01em; margin: 0; text-transform: uppercase; text-wrap: balance }
 h2 { font: 600 22px/1.1 var(--f-display); text-transform: uppercase; letter-spacing: .03em; margin: 0 }
 h3 { font: 600 16px/1.2 var(--f-display); text-transform: uppercase; letter-spacing: .05em; margin: 0; color: var(--muted) }
@@ -138,21 +175,33 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 @media (prefers-reduced-motion: no-preference) { .bar > div { transition: width .25s } }
 </style>
 
+<!--INICIO-->
+<nav class="topbar" aria-label="Secciones">
+  <div class="topbar-in">
+    <button class="marca" data-k="equipos">⚽ Pronósticos</button>
+    <button class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu" aria-label="Abrir menú">☰</button>
+    <ul class="menu" id="menu">
+      <li class="desp"><button id="btn-ligas" class="nav" aria-haspopup="true" aria-expanded="false">Ligas ▾</button>
+        <div class="desp-panel" id="ligas" hidden></div></li>
+      <li><button class="nav" data-k="equipos">Mis equipos</button></li>
+      <li><button class="nav" data-k="vivo"><span class="punto"></span>En vivo</button></li>
+      <li><button class="nav" data-k="pick">Pick del finde</button></li>
+      <li><button class="nav" data-k="probables">Picks más probables</button></li>
+      <li><button class="nav" data-k="apuestas">Mis apuestas</button></li>
+      <li class="desp derecha"><button id="btn-ajustes" class="nav" aria-haspopup="true" aria-expanded="false" title="Ajustes del valor esperado y montos">⚙ Ajustes</button>
+        <div class="desp-panel" id="ajustes" hidden>
+          <div class="bank">
+            <label for="banca">Banca (MXN)<input id="banca" type="number" min="0" step="100" value="5000"></label>
+            <label for="kelly">Fracción Kelly<input id="kelly" type="number" min="0.05" max="1" step="0.05" value="0.25"></label>
+            <label for="minev">Valor mínimo (EV)<input id="minev" type="number" min="0" max="0.5" step="0.01" value="0.05"></label>
+            <label for="tope">Tope por apuesta<input id="tope" type="number" min="0.005" max="0.2" step="0.005" value="0.03"></label>
+            <p class="note">Monto sugerido en Próximos = banca × fracción Kelly × (p·cuota − 1)/(cuota − 1), con tope por apuesta. Cuotas decimales (2.10, no +110).</p>
+          </div></div></li>
+    </ul>
+  </div>
+</nav>
 <div class="wrap">
-  <header>
-    <div>
-      <h1>Tablero de Probabilidades</h1>
-      <p class="sub">Modelo Dixon-Coles por liga con decaimiento temporal. Compara la probabilidad del modelo con la cuota de la casa: solo hay valor cuando la cuota paga más de lo que vale el resultado.</p>
-    </div>
-    <nav class="chips" id="ligas" aria-label="Competición"></nav>
-    <div class="bank">
-      <label for="banca">Banca (MXN)<input id="banca" type="number" min="0" step="100" value="5000"></label>
-      <label for="kelly">Fracción Kelly<input id="kelly" type="number" min="0.05" max="1" step="0.05" value="0.25"></label>
-      <label for="minev">Valor mínimo (EV)<input id="minev" type="number" min="0" max="0.5" step="0.01" value="0.05"></label>
-      <label for="tope">Tope por apuesta<input id="tope" type="number" min="0.005" max="0.2" step="0.005" value="0.03"></label>
-      <p class="note">Monto sugerido = banca × fracción Kelly × (p·cuota − 1)/(cuota − 1), con tope por apuesta. Escribe cuotas decimales (2.10, no +110).</p>
-    </div>
-  </header>
+  <header><h1 id="titulo">Pronósticos</h1><p class="sub" id="subtitulo"></p></header>
   <main id="vista"></main>
   <footer id="pie"></footer>
 </div>
@@ -227,11 +276,44 @@ if (!ORDEN.some(o => o[0] === liga)) liga = (ORDEN.find(o => D.ligas[o[0]]) || O
 ["banca", "kelly", "minev", "tope"].forEach(id => { const el = $("#" + id); el.value = store.get(id, el.value);
   el.addEventListener("input", () => { store.set(id, el.value); actualizarEV() }) });
 
+// ---------- barra superior: menú "Ligas" desplegable, secciones y ajustes
+const SUBTITULOS = { equipos: "Tus equipos favoritos y los destacados de cada liga", vivo: "Marcadores al minuto con la probabilidad del modelo",
+  pick: "Como máximo un favorito y una soñadora para la semana", probables: "Lo más probable de cada jornada, liga por liga",
+  apuestas: "Tu bank cerrado, tus apuestas y qué tan bien te pagan las casas" };
+function cierraPaneles() {
+  ["ligas", "ajustes"].forEach(id => { $("#" + id).hidden = true; $("#btn-" + id).setAttribute("aria-expanded", "false") });
+}
+function cierraMenus() { cierraPaneles(); $("#menu").classList.remove("abierto"); $("#menu-btn").setAttribute("aria-expanded", "false") }
+["ligas", "ajustes"].forEach(id => $("#btn-" + id).onclick = e => {
+  e.stopPropagation();
+  const abrir = $("#" + id).hidden;
+  cierraPaneles();
+  if (abrir) { $("#" + id).hidden = false; $("#btn-" + id).setAttribute("aria-expanded", "true") }
+});
+$("#menu-btn").onclick = e => {
+  e.stopPropagation();
+  const abrir = !$("#menu").classList.contains("abierto");
+  $("#menu").classList.toggle("abierto", abrir); $("#menu-btn").setAttribute("aria-expanded", String(abrir));
+};
+document.addEventListener("click", e => { if (!e.target.closest(".topbar")) cierraMenus() });
+document.addEventListener("keydown", e => { if (e.key === "Escape") cierraMenus() });
+
 function chips() {
-  $("#ligas").innerHTML = ORDEN.map(([k, n]) => {
-    const ok = GLOBALES[k] || D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
-    return `<button class="chip" data-k="${k}" aria-pressed="${k === liga}">${n}${ok ? "" : '<span class="dot" title="Sin datos en esta versión"></span>'}</button>` }).join("");
-  $("#ligas").querySelectorAll(".chip").forEach(b => b.onclick = () => { liga = b.dataset.k; store.set("liga", liga); render() });
+  const item = ([k, n]) => {
+    const ok = D.ligas[k] || ((k === "ucl" || k === "uel") && D.elo) || jugadoresDe(k);
+    return `<button class="item" data-k="${k}" aria-pressed="${k === liga}">${n}${ok ? "" : '<span class="dot" title="Sin datos por ahora"></span>'}</button>` };
+  const comps = ORDEN.filter(([k]) => !GLOBALES[k]), copas = ["ucl", "uel"];
+  $("#ligas").innerHTML = `<div class="grupo">Ligas</div>${comps.filter(([k]) => !copas.includes(k)).map(item).join("")}
+    <div class="grupo">Copas europeas</div>${comps.filter(([k]) => copas.includes(k)).map(item).join("")}`;
+  document.querySelectorAll(".topbar [data-k]").forEach(b => {
+    if (b.classList.contains("nav")) b.setAttribute("aria-current", b.dataset.k === liga ? "page" : "false");
+    b.onclick = () => { liga = b.dataset.k; store.set("liga", liga); cierraMenus(); render(); window.scrollTo(0, 0) };
+  });
+  const enLiga = !GLOBALES[liga], nombre = ORDEN.find(o => o[0] === liga)[1].replace(/^[★●]\s*/, "");
+  $("#btn-ligas").classList.toggle("activo", enLiga);
+  $("#btn-ligas").textContent = (enLiga ? nombre : "Ligas") + " ▾";
+  $("#titulo").textContent = enLiga ? (D.ligas[liga] && D.ligas[liga].nombre) || nombre : nombre;
+  $("#subtitulo").textContent = enLiga ? "Probabilidades, simulaciones y estadísticas" : SUBTITULOS[liga] || "";
 }
 
 function render() {

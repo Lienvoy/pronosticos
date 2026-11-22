@@ -1606,7 +1606,8 @@ def escribe_pagina(data, salida):
     if salida.endswith("index.html"):
         cuerpo = ('<!doctype html>\n<html lang="es">\n<head>\n<meta charset="utf-8">\n'
                   '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
-                  + cuerpo.replace("<div class=\"wrap\">", "</head>\n<body>\n<div class=\"wrap\">", 1) + "\n</body>\n</html>\n")
+                  + (cuerpo.replace("<!--INICIO-->", "</head>\n<body>", 1) if "<!--INICIO-->" in cuerpo
+                     else cuerpo.replace("<div class=\"wrap\">", "</head>\n<body>\n<div class=\"wrap\">", 1)) + "\n</body>\n</html>\n")
     with open(salida, "w", encoding="utf-8") as f:
         f.write(cuerpo)
     print("Escrito", salida)
