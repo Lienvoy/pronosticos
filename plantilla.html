@@ -551,7 +551,7 @@ function fiab(el, B) {
         <tr><td>Log-loss solo frecuencias históricas</td><td class="n">${b.logloss_base.toFixed(3)}</td></tr>
         ${b.logloss_mercado ? `<tr><td>Log-loss de las cuotas del mercado</td><td class="n">${b.logloss_mercado.toFixed(3)}</td></tr>` : ""}
         ${b.mezcla && b.mezcla.combinado ? `<tr><td>Log-loss combinado modelo + mercado (${b.mezcla.n} partidos con cuotas)</td><td class="n">${b.mezcla.combinado.toFixed(3)}</td></tr>` : ""}
-        ${b.xg && b.xg.logloss_por_peso && Object.keys(b.xg.logloss_por_peso).length > 1 ? `<tr><td>Log-loss solo goles / solo tiros / elegido (peso goles ${b.xg.peso_goles})</td><td class="n">${b.xg.logloss_por_peso["1.0"].toFixed(3)} / ${b.xg.logloss_por_peso["0.0"].toFixed(3)} / ${b.logloss.toFixed(3)}</td></tr>` : ""}
+        ${b.xg && b.xg.pesos && b.xg.logloss_por_peso && b.xg.logloss_por_peso["1/0/0"] != null ? `<tr><td>Log-loss solo con goles / con la mezcla elegida (goles ${b.xg.pesos[0]} · tiros ${b.xg.pesos[1]} · cuotas pasadas ${b.xg.pesos[2]})</td><td class="n">${b.xg.logloss_por_peso["1/0/0"].toFixed(3)} / ${b.logloss.toFixed(3)}</td></tr>` : ""}
         <tr><td>Brier modelo / base</td><td class="n">${b.brier.toFixed(3)} / ${b.brier_base.toFixed(3)}</td></tr>
         <tr><td>Aciertos del favorito del modelo</td><td class="n">${pct(b.acierto, 1)}</td></tr>
         ${b.apuestas_valor != null ? `<tr><td>Apuestas con EV &gt; 5% en la prueba</td><td class="n">${b.apuestas_valor}</td></tr><tr><td>Rendimiento por apuesta (stake fijo)</td><td class="n">${b.roi_valor == null ? "–" : pct(b.roi_valor, 1)}</td></tr>` : ""}
@@ -885,7 +885,15 @@ function apuestasVista(v) {
       <p class="small" style="margin:0">Se guarda en este navegador. Exporta el CSV de vez en cuando como respaldo; si lo guardas como <code>apuestas.csv</code> en la carpeta del tablero, la actualización también lo lee.</p></div>
     <div class="panel" style="display:grid;gap:12px"><div id="aresumen"></div><div class="scroll"><table id="atabla"></table></div>
       <div class="acciones"><button class="btn" id="aexp">Exportar CSV</button><label class="btn" style="cursor:pointer">Importar CSV<input id="aimp" type="file" accept=".csv" hidden></label></div>
-      <p class="small" style="margin:0"><b>CLV</b> (closing line value): cuánto mejor fue tu cuota que la de cierre (Pinnacle cuando hay). Si a la larga tu CLV promedio es positivo, estás apostando mejor que el mercado aunque pierdas algunas semanas; si es negativo, el método no tiene ventaja aunque vayas ganando. Es mejor indicador que el resultado de pocas apuestas.</p></div></div>`;
+      <p class="small" style="margin:0"><b>CLV</b> (closing line value): cuánto mejor fue tu cuota que la de cierre (Pinnacle cuando hay). Si a la larga tu CLV promedio es positivo, estás apostando mejor que el mercado aunque pierdas algunas semanas; si es negativo, el método no tiene ventaja aunque vayas ganando. Es mejor indicador que el resultado de pocas apuestas.</p></div>
+    <div class="panel" style="display:grid;gap:12px"><h3>Comparar casas de apuestas</h3>
+      <p class="small" style="margin:0">¿Qué tan cara es una casa? Escribe sus cuotas 1, X y 2 de un mismo partido. El margen es lo que la casa se queda: entre más bajo, mejor te paga. Compara 2 o 3 casas con los mismos partidos.</p>
+      <div class="calc-top"><label for="m1" style="flex:0 1 100px">1<input id="m1" type="number" step="0.01" min="1.01" inputmode="decimal"></label>
+        <label for="mx" style="flex:0 1 100px">X<input id="mx" type="number" step="0.01" min="1.01" inputmode="decimal"></label>
+        <label for="m2" style="flex:0 1 100px">2<input id="m2" type="number" step="0.01" min="1.01" inputmode="decimal"></label>
+        <div id="mres" style="align-self:end"></div></div>
+      <h3>Tus resultados por casa</h3><div class="scroll"><table id="acasas"></table></div>
+      <p class="small" style="margin:0">Para que esta tabla sirva, escribe la casa en cada apuesta. Con el tiempo, la casa con mejor CLV promedio es la que te da mejores cuotas.</p></div></div>`;
   const llenaPartidos = () => { const L = D.ligas[$("#ac").value];
     $("#ap").innerHTML = (L.proximos || []).map((r, i) => `<option value="${i}">${r.fecha.slice(5).split("-").reverse().join("/")} · ${esc(r.local)} vs ${esc(r.visita)}</option>`).join("") || "<option>Sin partidos próximos</option>";
     pone(); };
@@ -911,6 +919,15 @@ function apuestasVista(v) {
       .filter(a => a.cuota > 1 && a.local);
     store.set("apuestas", store.get("apuestas", []).concat(nuevas)); pinta() };
   $("#bini").onchange = e => { store.set("bank_inicial", +e.target.value || 0); pinta() };
+  // margen de la casa: suma de probabilidades implícitas − 1
+  const margen = () => {
+    const c = ["#m1", "#mx", "#m2"].map(s => +$(s).value);
+    if (!c.every(x => x > 1)) { $("#mres").innerHTML = '<span class="small">Escribe las tres cuotas.</span>'; return }
+    const m = c.reduce((s, x) => s + 1 / x, 0) - 1, imp = c.map(x => 1 / x / (1 + m));
+    const juicio = m <= 0.05 ? ["val", "margen bajo: paga bien"] : m <= 0.08 ? ["neg", "margen normal"] : ["neg", "margen alto: paga poco"];
+    $("#mres").innerHTML = `<span class="pill ${juicio[0]}">Margen ${pct(m, 1)} · ${juicio[1]}</span> <span class="small">Probabilidades sin margen: ${imp.map(x => pct(x)).join(" / ")}</span>`;
+  };
+  ["#m1", "#mx", "#m2"].forEach(s => $(s).addEventListener("input", margen)); margen();
   function pinta() {
     const B = bankEstado();
     $("#bank").innerHTML = B.ini <= 0 ? `<p class="small" style="margin:0">Escribe el dinero que destinas a esta temporada. La regla: solo se apuesta lo que hay en el bank y no se recarga desde tu cuenta.</p>`
@@ -926,6 +943,16 @@ function apuestasVista(v) {
       <div><span class="k">Ganancia</span><span class="v">${gan >= 0 ? "+" : ""}$${Math.round(gan)}</span></div><div><span class="k">ROI</span><span class="v">${apostado ? pct(gan / apostado, 1) : "–"}</span></div>
       <div><span class="k">CLV promedio</span><span class="v">${conClv.length ? (conClv.reduce((s, f) => s + f.clv, 0) / conClv.length >= 0 ? "+" : "") + pct(conClv.reduce((s, f) => s + f.clv, 0) / conClv.length, 1) : "–"}</span></div>
       <div><span class="k">Con CLV positivo</span><span class="v">${conClv.length ? pct(conClv.filter(f => f.clv > 0).length / conClv.length) : "–"}</span></div></div>`;
+    const casas = {};
+    filas.forEach(f => { const c = casas[f.casa || "Sin casa"] = casas[f.casa || "Sin casa"] || { n: 0, res: 0, apostado: 0, gan: 0, clv: [] };
+      c.n++; if (f.estado !== "Pendiente") { c.res++; c.apostado += f.monto; c.gan += f.ganancia } if (f.clv != null) c.clv.push(f.clv) });
+    $("#acasas").innerHTML = Object.keys(casas).length ? `<thead><tr><th>Casa</th><th class="n">Apuestas</th><th class="n">Ganancia</th><th class="n">ROI</th><th class="n">CLV promedio</th></tr></thead><tbody>
+      ${Object.entries(casas).sort((a, b) => b[1].n - a[1].n).map(([k, c]) => { const clv = c.clv.length ? c.clv.reduce((s, x) => s + x, 0) / c.clv.length : null;
+        return `<tr><td>${esc(k)}</td><td class="n">${c.n}</td><td class="n">${c.gan >= 0 ? "+" : ""}$${Math.round(c.gan)}</td><td class="n">${c.apostado ? pct(c.gan / c.apostado, 1) : "–"}</td><td class="n">${clv != null ? (clv >= 0 ? "+" : "") + pct(clv, 1) + ` <span class="small">(${c.clv.length})</span>` : "–"}</td></tr>` }).join("")}</tbody>`
+      : `<tbody><tr><td class="small">Todavía no hay apuestas registradas.</td></tr></tbody>`;
+    $("#ak").setAttribute("list", "casas-lista");
+    if (!$("#casas-lista")) document.body.insertAdjacentHTML("beforeend", '<datalist id="casas-lista"></datalist>');
+    $("#casas-lista").innerHTML = Object.keys(casas).filter(k => k !== "Sin casa").map(k => `<option value="${esc(k)}">`).join("");
     $("#atabla").innerHTML = `<thead><tr><th>Fecha</th><th>Partido</th><th>Apuesta</th><th class="n">Cuota</th><th class="n">Monto</th><th>Casa</th><th>Estado</th><th class="n">Cierre</th><th class="n">CLV</th><th class="n">Ganancia</th><th></th></tr></thead><tbody>
       ${filas.map(f => `<tr><td class="mono">${f.fecha}</td><td>${esc(f.local)} vs ${esc(f.visita)}</td><td>${f.sel}${f.tipo ? ` <span class="small">${esc(f.tipo)}</span>` : ""}</td><td class="n">${f2(f.cuota)}</td><td class="n">$${f.monto}</td><td>${esc(f.casa || "")}</td>
         <td>${f.estado}${f.marcador ? ` (${f.marcador})` : ""}</td><td class="n">${f.cierre ? f2(f.cierre) : "–"}</td><td class="n">${f.clv != null ? (f.clv >= 0 ? "+" : "") + pct(f.clv, 1) : "–"}</td>
