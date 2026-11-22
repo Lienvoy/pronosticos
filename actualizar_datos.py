@@ -176,6 +176,12 @@ def carga_openfootball(codigo):
 ESPN_SB = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 ESPN_LIGA = {"premier": "eng.1", "laliga": "esp.1", "seriea": "ita.1", "ligue1": "fra.1",
              "eredivisie": "ned.1", "ligamx": "mex.1", "bundesliga": "ger.1"}
+# ligas que no se muestran en la página: solo dan fuerza doméstica a sus clubes en Champions y Europa League
+# clave: (nombre, código football-data, código ESPN, código Transfermarkt)
+LIGAS_BASE = {"portugal": ("Primeira Liga", "P1", "por.1", "PO1"), "belgica": ("Pro League", "B1", "bel.1", "BE1"),
+              "turquia": ("Süper Lig", "T1", "tur.1", "TR1"), "escocia": ("Premiership", "SC0", "sco.1", "SC1"),
+              "grecia": ("Super League", "G1", "gre.1", "GR1")}
+ESPN_LIGA.update({k: v[2] for k, v in LIGAS_BASE.items()})
 MAPAS, MODELOS = {}, {}   # nombre ESPN -> football-data y modelo ajustado de cada liga (para las copas)
 EVENTOS_ESPN = {}         # partidos de ESPN por liga (con ids de equipo y de partido)
 PENDIENTES_SIM = []       # partidos próximos: se simulan al final, cuando ya se conocen las alineaciones
@@ -799,6 +805,7 @@ def partidos_europeos():
 
 ESPN_EQUIPOS = {}         # liga -> {id ESPN: nombre ESPN}
 TM_LIGA = {"premier": "GB1", "laliga": "ES1", "seriea": "IT1", "ligue1": "FR1", "eredivisie": "NL1", "ligamx": "MEX1", "bundesliga": "L1"}
+TM_LIGA.update({k: v[3] for k, v in LIGAS_BASE.items()})
 CACHE_V = {}              # caché de valores.py (Transfermarkt y alineaciones)
 COPA_MOD = {}             # modelo de cada copa en formato de liga (para estimar el efecto de la alineación)
 LESIONES = {}             # id ESPN del equipo -> nombres normalizados de lesionados/suspendidos
@@ -1382,6 +1389,29 @@ def procesa_liga(clave, fuente):
             "backtest": met}
 
 
+def procesa_base(clave):
+    """Liga de apoyo (no se muestra): ajusta el modelo de goles + tiros para que sus clubes tengan fuerza en las copas."""
+    nombre, cod_fd, _, _ = LIGAS_BASE[clave]
+    jug, _ = carga_football_data(clave, cod_fd)
+    try:
+        extra, _ = complemento_espn(clave, jug, proximos_football_data(cod_fd))
+        if len(extra):
+            jug = pd.concat([jug, extra], ignore_index=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  complemento ESPN falló para {nombre}: {e}")
+    fechas = sorted(set(jug["fecha"]))
+    inicios = [fechas[0]] + [fechas[i + 1] for i in range(len(fechas) - 1) if (fechas[i + 1] - fechas[i]).days > 30]
+    hasta = max(jug["fecha"]) + timedelta(days=1)
+    xg = xg_aproximado(jug)
+    if xg:
+        jug = xg[0]
+    mod = ajusta_dixon_coles(jug, hasta, inicios)
+    if xg:
+        mod = combina_modelos(mod, ajusta_dixon_coles(jug, hasta, inicios, objetivo="xg"), 0.5)
+    MODELOS[clave] = mod
+    print(f"  {nombre}: {len(jug)} partidos, {len(MAPAS.get(clave, {}))} equipos emparejados con ESPN")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fuente", default="auto", choices=["auto", "football-data", "openfootball"])
@@ -1424,6 +1454,13 @@ def main():
             r = None
         if r:
             data["ligas"][clave] = r
+    if os.environ.get("SIN_LIGAS_BASE") != "1":
+        print("Ligas de apoyo para las copas (Portugal, Bélgica, Turquía, Escocia, Grecia)")
+        for clave in LIGAS_BASE:
+            try:
+                procesa_base(clave)
+            except Exception as e:  # noqa: BLE001
+                print(f"  {LIGAS_BASE[clave][0]}: error {e}")
     for clave, (_, nombre) in ESPN_COPAS.items():
         print("Procesando", nombre)
         try:
