@@ -9,3 +9,4 @@ apuestas.csv
 cache_jugadores.json
 !semilla/*.json
 diario.json
+capturas/

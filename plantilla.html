@@ -36,7 +36,42 @@ header { padding-block: 32px 0; display: grid; gap: 6px }
   padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)) }
 .marca { font: 700 20px var(--f-display); letter-spacing: .02em; text-transform: uppercase; background: none; border: 0; color: var(--ink);
   cursor: pointer; padding: 0; white-space: nowrap }
+.casa { display: grid; place-items: center; width: 38px; height: 38px; background: none; border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); cursor: pointer; flex: none }
+.casa:hover { background: var(--bg); color: var(--turf) }
 .menu { list-style: none; margin: 0 0 0 auto; padding: 0; display: flex; align-items: center; gap: 2px }
+/* dashboard de Inicio */
+.dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 20px; align-items: start }
+.tarjeta-d { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 14px; min-width: 0 }
+.tarjeta-d > h2 { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap }
+.scrollbox { max-height: 440px; overflow-y: auto; margin: 0 -18px; padding: 0 18px; overscroll-behavior: contain }
+.liga-h { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; padding: 8px 0 6px; background: var(--panel);
+  border-bottom: 1px solid var(--line); font: 600 15px var(--f-display); text-transform: uppercase; letter-spacing: .04em }
+.liga-h span { font: 12.5px var(--f-body); text-transform: none; letter-spacing: 0; color: var(--muted) }
+.pt { display: grid; gap: 6px; padding: 10px 0 12px; border-bottom: 1px solid var(--line); cursor: pointer }
+.pt:hover { background: color-mix(in srgb, var(--bg) 60%, transparent) }
+.pt-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px }
+.pt-eq { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 600 }
+.pt-eq.l { justify-content: flex-end; text-align: right }
+.pt-eq span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pt-eq img { width: 24px; height: 24px; object-fit: contain; flex: none }
+.pt-c { display: grid; justify-items: center; min-width: 64px }
+.pt-c .est { font-size: 11.5px; color: var(--muted) } .pt-c .est.vivo { color: var(--red); font-weight: 600 }
+.pt-c b { font: 600 22px var(--f-display); letter-spacing: .04em }
+.pt-odds { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap }
+.pt-odds span { font: 12px var(--f-mono); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px }
+.pt .bar { height: 6px; font-size: 0 }
+.hb { display: grid; grid-template-columns: minmax(84px, 36%) minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; font-size: 13px }
+.hb .n1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .hb .n1 small { color: var(--muted) }
+.hb .tr { height: 12px } .hb .tr > i { display: block; height: 100%; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--turf) }
+.hb .tr.doble { height: 16px; display: grid; gap: 2px } .hb .tr.doble > i { height: 7px }
+.hb .tr > i.b { background: var(--away) } .hb .tr > i.g { background: var(--draw) }
+.hb .v { font: 12.5px var(--f-mono); color: var(--ink); text-align: right }
+.leyenda { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted) }
+.leyenda i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px }
+.mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 16px; font-size: 12.5px }
+.mini b { font: 600 13px var(--f-display); text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 2px }
+.mini div div { display: flex; justify-content: space-between; gap: 6px } .mini span { color: var(--muted) }
 .nav { font: 600 15px var(--f-display); letter-spacing: .04em; text-transform: uppercase; background: none; border: 0; color: var(--muted);
   padding: 8px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap }
 .nav:hover { color: var(--ink); background: var(--bg) }
@@ -178,7 +213,8 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 <!--INICIO-->
 <nav class="topbar" aria-label="Secciones">
   <div class="topbar-in">
-    <button class="marca" data-k="equipos">⚽ Pronósticos</button>
+    <button class="casa" data-k="inicio" aria-label="Inicio" title="Inicio"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 9.8V20h5v-5.5h3V20h5V9.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button class="marca" data-k="inicio">Pronósticos</button>
     <button class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu" aria-label="Abrir menú">☰</button>
     <ul class="menu" id="menu">
       <li class="desp"><button id="btn-ligas" class="nav" aria-haspopup="true" aria-expanded="false">Ligas ▾</button>
@@ -212,8 +248,8 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
 <script>
 (() => {
 const D = window.DATOS || { ligas: {}, copas: {} };
-const ORDEN = [["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["equipos","★ Mis equipos"],["vivo","● En vivo"],["pick","Pick del finde"],["probables","Picks más probables"],["apuestas","Mis apuestas"]];
-const GLOBALES = { equipos: v => equiposVista(v), vivo: v => vivoVista(v), pick: v => pickVista(v), probables: v => probablesVista(v), apuestas: v => apuestasVista(v) };
+const ORDEN = [["inicio","Inicio"],["ligamx","Liga MX"],["laliga","LaLiga"],["premier","Premier"],["ligue1","Ligue 1"],["seriea","Serie A"],["eredivisie","Eredivisie"],["bundesliga","Bundesliga"],["ucl","Champions"],["uel","Europa League"],["equipos","★ Mis equipos"],["vivo","● En vivo"],["pick","Pick del finde"],["probables","Picks más probables"],["apuestas","Mis apuestas"]];
+const GLOBALES = { inicio: v => inicioVista(v), equipos: v => equiposVista(v), vivo: v => vivoVista(v), pick: v => pickVista(v), probables: v => probablesVista(v), apuestas: v => apuestasVista(v) };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
@@ -271,13 +307,15 @@ function evHtml(p, cuota) {
 
 // ---------- estado
 let liga = store.get("liga", null), vistaTab = store.get("tab", "proximos"), vivoTimer = null;
+// al abrir la página se empieza en Inicio; al recargar la misma pestaña (cada 30 min) se queda donde estabas
+try { if (!sessionStorage.getItem("prono.sesion")) { liga = "inicio"; sessionStorage.setItem("prono.sesion", "1") } } catch { liga = "inicio" }
 const hash = location.hash.slice(1); if (ORDEN.some(o => o[0] === hash)) liga = hash;
 if (!ORDEN.some(o => o[0] === liga)) liga = (ORDEN.find(o => D.ligas[o[0]]) || ORDEN[0])[0];
 ["banca", "kelly", "minev", "tope"].forEach(id => { const el = $("#" + id); el.value = store.get(id, el.value);
   el.addEventListener("input", () => { store.set(id, el.value); actualizarEV() }) });
 
 // ---------- barra superior: menú "Ligas" desplegable, secciones y ajustes
-const SUBTITULOS = { equipos: "Tus equipos favoritos y los destacados de cada liga", vivo: "Marcadores al minuto con la probabilidad del modelo",
+const SUBTITULOS = { inicio: "Partidos de hoy, estadísticas, jugadores y probabilidades de un vistazo", equipos: "Tus equipos favoritos y los destacados de cada liga", vivo: "Marcadores al minuto con la probabilidad del modelo",
   pick: "Como máximo un favorito y una soñadora para la semana", probables: "Lo más probable de cada jornada, liga por liga",
   apuestas: "Tu bank cerrado, tus apuestas y qué tan bien te pagan las casas" };
 function cierraPaneles() {
@@ -729,6 +767,136 @@ function pintaVivo(res) {
   $("#vivo").innerHTML = seccion("En juego", grupos.in) + seccion("Por empezar (próximas 36 horas)", grupos.pre) + seccion("Terminados (últimas 30 horas)", grupos.post)
     || `<div class="panel empty"><p>No hay partidos en juego ni programados en las próximas 36 horas.</p></div>`;
   if (fallas) $("#vivo").insertAdjacentHTML("beforeend", `<p class="small">${fallas} competiciones no respondieron en esta consulta; se reintenta en 60 segundos.</p>`);
+}
+
+// ---------- Inicio: dashboard con partidos de hoy, estadísticas de ligas, jugadores y probabilidades
+const PAIS = { ligamx: "México", laliga: "España", premier: "Inglaterra", ligue1: "Francia", seriea: "Italia", eredivisie: "Países Bajos",
+  bundesliga: "Alemania", ucl: "UEFA", uel: "UEFA" };
+const decimal = ml => { const v = parseFloat(ml); return !v ? null : v > 0 ? 1 + v / 100 : 1 + 100 / -v };
+// barras horizontales en HTML (el texto se mantiene legible en el celular); cada fila: {n, sub, v, t}
+function barrasH(filas, fmt, max) {
+  const mx = max || Math.max(...filas.map(f => f.v), 1e-9);
+  return `<div class="hb">${filas.map(f => `<div class="n1" title="${esc(f.t || f.n)}">${esc(f.n)}${f.sub ? ` <small>${esc(f.sub)}</small>` : ""}</div>
+    <div class="tr" title="${esc(f.t || `${f.n}: ${fmt(f.v)}`)}"><i style="width:${100 * f.v / mx}%"></i></div><div class="v">${fmt(f.v)}</div>`).join("")}</div>`;
+}
+// dos series por fila (modelo/mercado, +2.5/ambos anotan); la leyenda va aparte
+function barrasDobles(filas, fmt, max, clases = ["", "b"]) {
+  const mx = max || Math.max(...filas.flatMap(f => f.v), 1e-9);
+  return `<div class="hb">${filas.map(f => `<div class="n1">${esc(f.n)}</div>
+    <div class="tr doble" title="${esc(f.t)}">${f.v.map((x, i) => `<i class="${clases[i]}" style="width:${100 * x / mx}%"></i>`).join("")}</div>
+    <div class="v">${f.v.map(fmt).join(" · ")}</div>`).join("")}</div>`;
+}
+function partidoHoy(k, ev) {
+  const c = ev.competitions[0], eq = Object.fromEntries(c.competitors.map(x => [x.homeAway, x])), h = eq.home, a = eq.away;
+  const st = ev.status, est = st.type.state, L = D.ligas[k];
+  const nom = n => (L && L.espn && L.espn[n]) || n, nh = nom(h.team.displayName), na = nom(a.team.displayName);
+  const lm = L && L.modelo.equipos[nh] && L.modelo.equipos[na] ? lambdasLiga(L, nh, na) : null;
+  const gh = +h.score || 0, ga = +a.score || 0, min = minutoDe(st);
+  let p = null;
+  if (lm) p = est === "in" ? probVivo(lm, gh, ga, min) : (m => [m.h, m.d, m.a])(mercados(matriz(...lm)));
+  const o = (c.odds || [])[0] || {}, ml = (o.moneyline || {});
+  const cuota = lado => decimal(((ml[lado] || {}).close || {}).odds || ((ml[lado] || {}).open || {}).odds
+    || (lado === "home" ? (o.homeTeamOdds || {}).moneyLine : lado === "away" ? (o.awayTeamOdds || {}).moneyLine : (o.drawOdds || {}).moneyLine));
+  const cs = ["home", "draw", "away"].map(cuota);
+  const hora = new Date(ev.date).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+  const estado = est === "in" ? `<span class="est vivo">${esc(st.type.shortDetail === "HT" ? "Medio tiempo" : st.displayClock)}</span>`
+    : est === "post" ? '<span class="est">Finalizado</span>' : '<span class="est">Hoy</span>';
+  const logo = x => x.team.logo ? `<img src="${esc(x.team.logo)}" alt="" loading="lazy">` : "";
+  return `<div class="pt" data-ir="${k}" title="Ver ${esc(ORDEN.find(o => o[0] === k)[1])}">
+    <div class="pt-fila"><div class="pt-eq l"><span>${esc(h.team.displayName)}</span>${logo(h)}</div>
+      <div class="pt-c">${estado}<b>${est === "pre" ? hora : `${gh} - ${ga}`}</b></div>
+      <div class="pt-eq">${logo(a)}<span>${esc(a.team.displayName)}</span></div></div>
+    ${cs.some(Boolean) ? `<div class="pt-odds">${["1", "X", "2"].map((n, i) => `<span>${n} · ${cs[i] ? cs[i].toFixed(2) : "–"}</span>`).join("")}</div>` : ""}
+    ${p ? `<div class="bar" title="${est === "in" ? "Probabilidad en vivo" : "Probabilidad del modelo"}: ${p.map(x => pct(x)).join(" / ")}">${p.map((x, i) => `<div class="${["b1", "bx", "b2"][i]}" style="width:${100 * x}%"></div>`).join("")}</div>` : ""}
+  </div>`;
+}
+function inicioVista(v) {
+  const ligas = COMPS().filter(([k]) => !["ucl", "uel"].includes(k));
+  // ---- estadísticas de la temporada por liga (de los resultados publicados)
+  const est = ligas.map(([k, n]) => { const R = D.ligas[k].recientes.filter(r => r.gl != null), N = R.length || 1;
+    return { k, n, pj: R.length, goles: R.reduce((s, r) => s + r.gl + r.gv, 0) / N, l: R.filter(r => r.gl > r.gv).length / N,
+      e: R.filter(r => r.gl === r.gv).length / N, vi: R.filter(r => r.gl < r.gv).length / N,
+      o25: R.filter(r => r.gl + r.gv > 2).length / N, btts: R.filter(r => r.gl > 0 && r.gv > 0).length / N } });
+  // ---- jugadores (solo ligas, para no contar dos veces a quien juega copa)
+  const jug = ligas.flatMap(([k, n]) => ((jugadoresDe(k) || {}).jugadores || []).map(j => ({ ...j, liga: n })));
+  const top = campo => [...jug].filter(j => j[campo]).sort((a, b) => b[campo] - a[campo]).slice(0, 10)
+    .map(j => ({ n: j.nombre, sub: `${j.equipo} · ${j.liga}`, v: j[campo] }));
+  const lesion = ligas.map(([k, n]) => ({ n, v: ((jugadoresDe(k) || {}).jugadores || []).filter(j => j.lesion).length })).filter(x => x.v);
+  // ---- favoritos más claros de los próximos 7 días
+  const limite = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10), hoyS = new Date().toISOString().slice(0, 10);
+  const claros = COMPS().flatMap(([k, n]) => (D.ligas[k].proximos || []).filter(r => r.fecha >= hoyS && r.fecha <= limite).map(r => {
+    const { pm, pc } = probsFila(r, D.ligas[k]), p = pc || pm, i = p.indexOf(Math.max(...p));
+    return { k, n, r, p: p[i], sel: [r.local, "Empate", r.visita][i] } })).sort((a, b) => b.p - a.p).slice(0, 8);
+  // ---- fiabilidad: modelo vs mercado y calibración (todas las ligas juntas)
+  const fia = COMPS().map(([k, n]) => ({ n, b: D.ligas[k].backtest || {} })).filter(x => x.b.logloss && x.b.logloss_mercado);
+  const bins = {};
+  COMPS().forEach(([k]) => ((D.ligas[k].backtest || {}).calibracion || []).forEach(c => {
+    const b = bins[c.rango] = bins[c.rango] || { n: 0, pred: 0, obs: 0 }; b.n += c.n; b.pred += c.pred * c.n; b.obs += c.obs * c.n }));
+  const cal = Object.entries(bins).map(([r, b]) => ({ r, n: b.n, pred: b.pred / b.n, obs: b.obs / b.n })).sort((a, b) => a.pred - b.pred);
+  const W = 300, H = 200, pad = 32, X = t => pad + t * (W - pad - 10), Y = t => H - pad + 4 - t * (H - pad - 6);
+  const curva = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:360px" role="img" aria-label="Curva de calibración">
+    ${[0, .25, .5, .75, 1].map(t => `<line x1="${X(0)}" x2="${X(1)}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--line)"/><text x="${pad - 6}" y="${Y(t) + 4}" text-anchor="end">${t * 100}</text><text x="${X(t)}" y="${H - 6}" text-anchor="middle">${t * 100}</text>`).join("")}
+    <line x1="${X(0)}" y1="${Y(0)}" x2="${X(1)}" y2="${Y(1)}" stroke="var(--muted)" stroke-dasharray="4 4"/>
+    <polyline fill="none" stroke="var(--turf)" stroke-width="2" points="${cal.map(c => X(c.pred) + "," + Y(c.obs)).join(" ")}"/>
+    ${cal.map(c => `<circle cx="${X(c.pred)}" cy="${Y(c.obs)}" r="5" fill="var(--turf)" stroke="var(--panel)" stroke-width="2"><title>Decía ${pct(c.pred, 1)}, pasó ${pct(c.obs, 1)} (${c.n} casos)</title></circle>`).join("")}</svg>`;
+  const conT = ligas.filter(([k]) => D.ligas[k].temporada_sim).concat(COMPS().filter(([k]) => ["ucl", "uel"].includes(k) && D.ligas[k].temporada_sim));
+  let ligaT = store.get("inicio.titulo", (conT[0] || [""])[0]);
+  if (!conT.some(([k]) => k === ligaT)) ligaT = (conT[0] || [""])[0];
+  v.innerHTML = `<div class="dash">
+    <section class="tarjeta-d"><h2>En vivo y hoy <span class="small" id="hoy-hora">Consultando…</span></h2>
+      <div class="scrollbox" id="hoy"><p class="small">Cargando partidos…</p></div>
+      <p class="small" style="margin:0">Marcadores de ESPN (se actualizan cada minuto). La barra es la probabilidad del modelo; en partidos en juego, la probabilidad en vivo. Toca un partido para ir a su liga.</p></section>
+    <section class="tarjeta-d"><h2>Probabilidades</h2>
+      <div class="calc-top"><label for="ti" style="flex:0 1 220px">Favoritos al título<select id="ti">${conT.map(([k, n]) => `<option value="${k}" ${k === ligaT ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div>
+      <div id="titulo-g"></div>
+      <h3>Favoritos más claros (7 días)</h3>
+      ${barrasH(claros.map(c => ({ n: c.sel === "Empate" ? `Empate: ${c.r.local}–${c.r.visita}` : c.sel, sub: `${c.n} · ${fechaCorta(c.r.fecha)} · cuota justa ${f2(1 / c.p)}`, v: c.p,
+        t: `${c.r.local} vs ${c.r.visita}: ${c.sel} ${pct(c.p, 1)}` })), x => pct(x), 1)}
+      <h3>¿Qué tan fiable es? (log-loss, menor es mejor)</h3>
+      <div class="leyenda"><span><i style="background:var(--turf)"></i>Modelo</span><span><i style="background:var(--draw)"></i>Mercado</span></div>
+      ${barrasDobles(fia.map(x => ({ n: x.n, v: [x.b.logloss, x.b.logloss_mercado], t: `${x.n}: modelo ${x.b.logloss.toFixed(3)}, mercado ${x.b.logloss_mercado.toFixed(3)}` })), x => x.toFixed(3), 1.2, ["", "g"])}
+      <h3>Calibración: lo que decía el modelo vs lo que pasó (%)</h3>${curva}
+      <p class="small" style="margin:0">Si los puntos siguen la diagonal, cuando el modelo dice 40% pasa cerca de 40% de las veces. Todas las ligas, prueba fuera de muestra.</p></section>
+    <section class="tarjeta-d"><h2>Estadísticas de las ligas</h2>
+      <h3>Goles por partido</h3>${barrasH(est.map(e => ({ n: e.n, v: e.goles, t: `${e.n}: ${e.goles.toFixed(2)} goles por partido en ${e.pj} partidos` })), x => x.toFixed(2))}
+      <h3>Gana local · empate · gana visita</h3>
+      <div class="leyenda"><span><i style="background:var(--turf)"></i>Local</span><span><i style="background:var(--draw)"></i>Empate</span><span><i style="background:var(--away)"></i>Visita</span></div>
+      <div class="hb">${est.map(e => `<div class="n1">${esc(e.n)}</div><div class="bar" style="height:14px;font-size:0" title="${esc(e.n)}: local ${pct(e.l)}, empate ${pct(e.e)}, visita ${pct(e.vi)}">
+        <div class="b1" style="width:${100 * e.l}%"></div><div class="bx" style="width:${100 * e.e}%"></div><div class="b2" style="width:${100 * e.vi}%"></div></div><div class="v">${pct(e.l)}·${pct(e.e)}·${pct(e.vi)}</div>`).join("")}</div>
+      <h3>Más de 2.5 goles y ambos anotan</h3>
+      <div class="leyenda"><span><i style="background:var(--turf)"></i>Más de 2.5</span><span><i style="background:var(--away)"></i>Ambos anotan</span></div>
+      ${barrasDobles(est.map(e => ({ n: e.n, v: [e.o25, e.btts], t: `${e.n}: más de 2.5 ${pct(e.o25)}, ambos anotan ${pct(e.btts)}` })), x => pct(x), 1)}
+      <h3>Top 3 de cada liga</h3>
+      <div class="mini">${ligas.map(([k, n]) => `<div><b>${esc(n)}</b>${D.ligas[k].tabla.slice(0, 3).map((r, i) => `<div><span>${i + 1}. ${esc(r.equipo)}</span>${r.pts}</div>`).join("")}</div>`).join("")}</div></section>
+    <section class="tarjeta-d"><h2>Jugadores</h2>
+      <h3>Goleadores (todas las ligas)</h3>${barrasH(top("goles"), x => x)}
+      <h3>Asistidores</h3>${barrasH(top("asist"), x => x)}
+      ${lesion.length ? `<h3>Jugadores con baja por liga</h3>${barrasH(lesion, x => x)}` : ""}</section>
+  </div>`;
+  const pintaTitulo = () => {
+    const T = D.ligas[ligaT] && D.ligas[ligaT].temporada_sim;
+    $("#titulo-g").innerHTML = T ? barrasH([...T.tabla].sort((a, b) => b.p1 - a.p1).slice(0, 4).map(r => ({ n: r.equipo, sub: `${r.pts} pts`, v: r.p1,
+      t: `${r.equipo}: ${pct(r.p1, 1)} de ${T.etiqueta1.toLowerCase()} (${T.temporadas.toLocaleString("es-MX")} temporadas simuladas)` })), x => pct(x, 1), 1) : "";
+  };
+  $("#ti").onchange = e => { ligaT = e.target.value; store.set("inicio.titulo", ligaT); pintaTitulo() };
+  pintaTitulo();
+  const carga = async () => {
+    const res = await Promise.all(VIVO.map(async ([k, c]) => {
+      try { return [k, (await (await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${c}/scoreboard`)).json()).events || []] }
+      catch { return [k, null] } }));
+    if (liga !== "inicio" || !$("#hoy")) return;
+    const hoy = new Date().toDateString(), orden = { in: 0, pre: 1, post: 2 };
+    const html = res.map(([k, evs]) => {
+      const lista = (evs || []).filter(ev => new Date(ev.date).toDateString() === hoy || ev.status.type.state === "in")
+        .sort((a, b) => orden[a.status.type.state] - orden[b.status.type.state] || new Date(a.date) - new Date(b.date));
+      if (!lista.length) return "";
+      return `<div class="liga-h">${esc(ORDEN.find(o => o[0] === k)[1])} <span>${PAIS[k] || ""}</span></div>${lista.map(ev => partidoHoy(k, ev)).join("")}`;
+    }).join("");
+    $("#hoy").innerHTML = html || '<p class="small">Hoy no hay partidos de nuestras competiciones. Revisa "Picks más probables" para la próxima jornada.</p>';
+    $("#hoy").querySelectorAll("[data-ir]").forEach(el => el.onclick = () => { liga = el.dataset.ir; vistaTab = "proximos"; store.set("liga", liga); render(); window.scrollTo(0, 0) });
+    $("#hoy-hora").textContent = "Actualizado " + new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+  };
+  carga(); vivoTimer = setInterval(carga, 60000);
 }
 
 // ---------- Mis equipos
