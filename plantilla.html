@@ -74,6 +74,8 @@ tr:last-child td { border-bottom: 0 }
 .odds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px }
 .odds input { width: 100%; text-align: center; padding: 3px 4px; font-size: 13px }
 .odds .ev { font: 11px var(--f-mono); text-align: center; color: var(--muted) }
+.odds .margen { grid-column: 1 / -1; font-size: 11px; color: var(--muted); text-align: center }
+.margen b.ok { color: var(--turf) } .margen b.caro { color: var(--red) }
 .pill { display: inline-block; font: 600 11px var(--f-mono); padding: 1px 6px; border-radius: 3px }
 .pill.val { background: var(--amber-soft); color: var(--amber) } .pill.neg { color: var(--muted) }
 .mk { width: 100% } .mk td:first-child { color: var(--muted) }
@@ -290,7 +292,8 @@ function filaPartido(r, lm, opts = {}) {
       <span class="acciones">${r.sim ? `<button class="btn simbtn" data-sb="sb-${id}" aria-expanded="false" aria-controls="sb-${id}">Simulación</button>` : ""}${google(r.local, r.visita)}</span></div>
     <div><div class="bar"><div class="b1" style="width:${100 * k.h}%">${pct(k.h)}</div><div class="bx" style="width:${100 * k.d}%">${pct(k.d)}</div><div class="b2" style="width:${100 * k.a}%">${pct(k.a)}</div></div>
       <div class="odds">${["1", "X", "2"].map((n, i) => `<input id="o-${id}-${i}" aria-label="Cuota ${n}" placeholder="${n} · ${f2(1 / ps[i])}" value="${(guard && guard[i]) || (c[i] ?? "")}" data-p="${ps[i]}">`).join("")}
-      ${ps.map((p, i) => `<div class="ev" id="e-${id}-${i}"></div>`).join("")}</div></div></div>`;
+      ${ps.map((p, i) => `<div class="ev" id="e-${id}-${i}"></div>`).join("")}
+      <div class="margen" data-ref="${c.every(x => x > 1) ? margen(c) : ""}"></div></div></div></div>`;
 }
 function conectarCuotas(root) {
   root.querySelectorAll(".fx").forEach(fx => {
@@ -299,16 +302,28 @@ function conectarCuotas(root) {
   });
   actualizarEV();
 }
+// margen de la casa: cuánto pasa de 100% la suma de las probabilidades implícitas 1/cuota de 1, X y 2
+const margen = c => c.reduce((s, x) => s + 1 / x, 0) - 1;
+function margenHtml(m, ref) {
+  const cls = m <= 0.05 ? "ok" : m > 0.08 ? "caro" : "";
+  const txt = m <= 0.05 ? "bueno" : m > 0.08 ? "caro" : "normal";
+  return `Margen de estas cuotas: <b class="${cls}">${(100 * m).toFixed(1)}%</b> (${txt})` +
+    (ref !== "" && Math.abs(m - ref) > 0.001 ? ` · promedio del mercado ${(100 * ref).toFixed(1)}%` : "");
+}
 function actualizarEV() {
-  document.querySelectorAll(".fx").forEach(fx => fx.querySelectorAll(".odds input").forEach((inp, i) => {
-    const e = fx.querySelectorAll(".ev")[i]; if (e) e.innerHTML = evHtml(+inp.dataset.p, inp.value) }));
+  document.querySelectorAll(".fx").forEach(fx => {
+    const ins = [...fx.querySelectorAll(".odds input")], c = ins.map(inp => parseFloat(inp.value));
+    ins.forEach((inp, i) => { const e = fx.querySelectorAll(".ev")[i]; if (e) e.innerHTML = evHtml(+inp.dataset.p, inp.value) });
+    const mg = fx.querySelector(".margen");
+    if (mg) mg.innerHTML = c.length === 3 && c.every(x => x > 1) ? margenHtml(margen(c), mg.dataset.ref === "" ? "" : +mg.dataset.ref) : "";
+  });
   document.querySelectorAll("[data-mk]").forEach(inp => { const e = $("#" + inp.dataset.mk); if (e) e.innerHTML = evHtml(+inp.dataset.p, inp.value) });
 }
 
 function proximos(el, L) {
   if (!L.proximos.length) { el.innerHTML = `<div class="panel empty"><p>No hay partidos próximos en la fuente. Usa la calculadora para cualquier cruce.</p></div>`; return }
   el.innerHTML = `<div class="panel">
-    <p class="small" style="margin:0 0 6px">Escribe la cuota de tu casa en cada casilla. El gris dentro de la casilla es la cuota justa del modelo; un porcentaje ámbar indica valor esperado por encima de tu mínimo y el monto sugerido. Cuando hay cuotas, el valor se calcula con la probabilidad <b>combinada</b> (modelo + mercado, con el peso que mejor pronosticó fuera de muestra: ${L.mezcla && L.mezcla.alpha < 1 ? `${Math.round(100 * L.mezcla.alpha)}% modelo` : "solo modelo"}).</p>
+    <p class="small" style="margin:0 0 6px">Escribe la cuota de tu casa en cada casilla; abajo verás su margen (lo que se queda la casa: 5% o menos es bueno, más de 8% es caro), comparado con el promedio del mercado. El gris dentro de la casilla es la cuota justa del modelo; un porcentaje ámbar indica valor esperado por encima de tu mínimo y el monto sugerido. Cuando hay cuotas, el valor se calcula con la probabilidad <b>combinada</b> (modelo + mercado, con el peso que mejor pronosticó fuera de muestra: ${L.mezcla && L.mezcla.alpha < 1 ? `${Math.round(100 * L.mezcla.alpha)}% modelo` : "solo modelo"}).</p>
     ${L.proximos.map((r, i) => { const id = liga + "-" + r.fecha + "-" + i;
       // con simulación, la barra usa los goles esperados ya ajustados por la alineación titular
       return filaPartido(r, (r.sim && r.sim.lm) || lambdasLiga(L, r.local, r.visita), { id }) + (r.sim ? `<div class="simbox" id="sb-${id}" hidden></div>` : "") }).join("")}</div>`;
