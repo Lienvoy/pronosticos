@@ -53,7 +53,13 @@ PAIS_ELO = {"premier": "ENG", "laliga": "ESP", "seriea": "ITA", "ligue1": "FRA",
 
 XI = 0.005            # decaimiento temporal por día (vida media ≈ 140 días)
 RIDGE = 0.6           # regularización de fuerzas de ataque/defensa
-PRIOR_ASCENDIDO = (-0.25, 0.25)   # equipos sin historia en la liga arrancan más débiles
+PRIOR_ASCENDIDO = (-0.25, 0.25)
+# parámetros afinados por liga (afina.py los elige con la prueba fuera de muestra); si falta una liga, se usan XI y RIDGE
+try:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "parametros.json"), encoding="utf-8") as _f:
+        PARAMETROS = json.load(_f)
+except (OSError, ValueError):
+    PARAMETROS = {}   # equipos sin historia en la liga arrancan más débiles
 MAX_GOLES = 10
 HTTP = requests.Session()
 HTTP.headers["User-Agent"] = "pronosticos-personal/1.0"
@@ -354,7 +360,7 @@ def xg_aproximado(jug):
     return out, [round(float(c), 3) for c in coef]
 
 
-def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles"):
+def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles", xi=None, ridge=None):
     """Ajusta el modelo con los partidos anteriores a `hasta`, ponderados por antigüedad.
     Los equipos sin partidos antes del inicio de la temporada en curso (ascendidos) usan un prior más débil.
     Con con_cov=True también devuelve el vector de parámetros y su covarianza aproximada (para Montecarlo).
@@ -372,7 +378,9 @@ def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles"):
     else:
         x, y = d["gl"].to_numpy(int), d["gv"].to_numpy(int)
     dias = np.array([(hasta - f).days for f in d["fecha"]])
-    w = np.exp(-XI * dias)
+    xi = XI if xi is None else xi            # velocidad de olvido y suavizado: se pueden afinar por liga
+    ridge = RIDGE if ridge is None else ridge
+    w = np.exp(-xi * dias)
     pa = np.array([PRIOR_ASCENDIDO[0] if e in equipos_nuevos else 0 for e in equipos])
     pd_ = np.array([PRIOR_ASCENDIDO[1] if e in equipos_nuevos else 0 for e in equipos])
     lgx = np.array([math.lgamma(v + 1) for v in x])
@@ -384,7 +392,7 @@ def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles"):
         l = np.exp(mu + h + a[hi] + df_[ai])
         m = np.exp(mu + a[ai] + df_[hi])
         ll = x * np.log(l) - l - lgx + y * np.log(m) - m - lgy + np.log(_tau(x, y, l, m, rho))
-        return -(w * ll).sum() + RIDGE * (((a - pa) ** 2).sum() + ((df_ - pd_) ** 2).sum())
+        return -(w * ll).sum() + ridge * (((a - pa) ** 2).sum() + ((df_ - pd_) ** 2).sum())
 
     p0 = np.concatenate([[0.2, 0.25, 0.0 if objetivo == "xg" else -0.05], pa, pd_])
     bounds = [(None, None), (-1, 1), (0, 0) if objetivo == "xg" else (-0.3, 0.3)] + [(-3, 3)] * (2 * n)
@@ -394,13 +402,13 @@ def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles"):
            "ataque": {e: float(p[3 + i]) for i, e in enumerate(equipos)},
            "defensa": {e: float(p[3 + n + i]) for i, e in enumerate(equipos)}}
     if con_cov:
-        out.update(theta=p.copy(), cov=_covarianza(p, nll, hi, ai, w, n), orden=equipos)
+        out.update(theta=p.copy(), cov=_covarianza(p, nll, hi, ai, w, n, ridge), orden=equipos)
         se = np.sqrt(np.diag(out["cov"]))
         out["se"] = {e: (float(se[3 + i]), float(se[3 + n + i])) for i, e in enumerate(equipos)}
     return out
 
 
-def _covarianza(p, nll, hi, ai, w, n):
+def _covarianza(p, nll, hi, ai, w, n, ridge=RIDGE):
     """Inversa del Hessiano de la log-verosimilitud penalizada (aproximación de Laplace).
     Para la parte Poisson con enlace log, el Hessiano es exacto y cerrado: Σ w·λ·x·x' (x = fila de diseño) + ridge.
     El término de Dixon-Coles solo toca a rho, cuya segunda derivada se calcula numéricamente aparte."""
@@ -414,7 +422,7 @@ def _covarianza(p, nll, hi, ai, w, n):
     Xl[:, 0] = 1; Xl[:, 1] = 1; Xl[filas, 3 + hi] = 1; Xl[filas, 3 + n + ai] = 1
     Xm[:, 0] = 1; Xm[filas, 3 + ai] = 1; Xm[filas, 3 + n + hi] = 1
     H = (Xl * (w * l)[:, None]).T @ Xl + (Xm * (w * m)[:, None]).T @ Xm
-    H[np.arange(3, P), np.arange(3, P)] += 2 * RIDGE
+    H[np.arange(3, P), np.arange(3, P)] += 2 * ridge
     eps = 1e-3
     pr = [p.copy() for _ in range(3)]
     pr[0][2] -= eps; pr[2][2] += eps
@@ -499,7 +507,7 @@ def prob_1x2(mod, local, visita):
 PESOS_XG = [1.0, 0.75, 0.5, 0.25, 0.0]     # peso del modelo de goles (el resto, del de tiros)
 
 
-def backtest(jug, inicios, con_xg=False):
+def backtest(jug, inicios, con_xg=False, xi=None, ridge=None):
     """Reajusta cada semana con datos previos y predice la semana siguiente (fuera de muestra).
     Cubre la temporada pasada completa y lo que va de la actual. Con con_xg, cada semana ajusta también el modelo de
     tiros y elige el peso de la combinación que mejor pronostica. Devuelve (preds, métricas, peso, log-loss por peso)."""
@@ -514,8 +522,8 @@ def backtest(jug, inicios, con_xg=False):
     while corte <= fin:
         sem = act[(act["fecha"] >= corte) & (act["fecha"] < corte + timedelta(days=7))]
         if len(sem):
-            mg = ajusta_dixon_coles(jug, corte, inicios)
-            mx = ajusta_dixon_coles(jug, corte, inicios, objetivo="xg") if con_xg else None
+            mg = ajusta_dixon_coles(jug, corte, inicios, xi=xi, ridge=ridge)
+            mx = ajusta_dixon_coles(jug, corte, inicios, objetivo="xg", xi=xi, ridge=ridge) if con_xg else None
             for w in pesos:
                 mod = combina_modelos(mg, mx, w)
                 for r in sem.itertuples():
@@ -1343,10 +1351,12 @@ def procesa_liga(clave, fuente):
     coef_xg = None
     if xg:
         jug, coef_xg = xg
-    preds, met, w_goles, ll_pesos = backtest(jug, inicios, con_xg=xg is not None)
-    mod = ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, con_cov=True)
+    prm = PARAMETROS.get(clave, {})          # afinados con afina.py; si no hay, los generales
+    preds, met, w_goles, ll_pesos = backtest(jug, inicios, con_xg=xg is not None, xi=prm.get("xi"), ridge=prm.get("ridge"))
+    mod = ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, con_cov=True, xi=prm.get("xi"), ridge=prm.get("ridge"))
     if w_goles < 1:
-        mod = combina_modelos(mod, ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, objetivo="xg"), w_goles)
+        mod = combina_modelos(mod, ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, objetivo="xg",
+                                                      xi=prm.get("xi"), ridge=prm.get("ridge")), w_goles)
     MODELOS[clave] = mod
     alpha, info_mezcla = elige_mezcla(preds)
     if met:
