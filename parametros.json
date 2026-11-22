@@ -1,0 +1,18 @@
+{
+ "ligue1": {
+  "xi": 0.0065,
+  "ridge": 0.3
+ },
+ "laliga": {
+  "xi": 0.0025,
+  "ridge": 1.0
+ },
+ "bundesliga": {
+  "xi": 0.0065,
+  "ridge": 1.0
+ },
+ "ligamx": {
+  "xi": 0.005,
+  "ridge": 1.0
+ }
+}

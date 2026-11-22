@@ -69,7 +69,7 @@ def afina(clave):
     mejor_xi = min(XIS, key=lambda x: prueba(x, A.RIDGE)["pasada"])          # primero la velocidad de olvido
     mejor_r = min(RIDGES, key=lambda r: prueba(mejor_xi, r)["pasada"])       # luego el suavizado
     elegido = prueba(mejor_xi, mejor_r)
-    queda = elegido["actual"] <= base["actual"] + 0.002                         # no se acepta si empeora la temporada actual
+    queda = elegido["actual"] < base["actual"]                                  # solo si mejora la temporada actual
     print(f"  -> XI {mejor_xi}, ridge {mejor_r}: temporada actual {base['actual']:.4f} -> {elegido['actual']:.4f}"
           f" {'(se guarda)' if queda else '(no mejora fuera de la elección: se dejan los generales)'}")
     return ({"xi": mejor_xi, "ridge": mejor_r} if queda else None), base, elegido
