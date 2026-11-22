@@ -55,10 +55,31 @@ jobs:
           mkdir -p _site
           # sin caché previa se arranca con la semilla generada en la PC (por si Transfermarkt bloquea a GitHub)
           for f in cache_valores.json cache_jugadores.json; do [ -f "$f" ] || cp "semilla/$f" "$f"; done
+          # diario de pronósticos: vive en la rama "diario" (así los commits no ensucian main ni relanzan esta corrida)
+          git fetch --depth=1 origin diario 2>/dev/null && git show FETCH_HEAD:diario.json > diario.json || echo "Diario nuevo"
           MODO=""
           if [ "${{ github.event.schedule }}" = "*/30 * * * *" ] && [ -f cache_jugadores.json ]; then MODO="--rapido"; fi
           echo "Modo: ${MODO:-completo}"
           python -u actualizar_datos.py --salida _site/index.html $MODO
+
+      - name: Guardar el diario de pronósticos
+        if: hashFiles('diario.json') != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          cp diario.json "$RUNNER_TEMP/diario.json"
+          if git fetch --depth=1 origin diario 2>/dev/null; then
+            git worktree add -B diario "$RUNNER_TEMP/rama" FETCH_HEAD
+          else
+            git worktree add --detach "$RUNNER_TEMP/rama"
+            git -C "$RUNNER_TEMP/rama" checkout --orphan diario
+            git -C "$RUNNER_TEMP/rama" rm -rfq .
+          fi
+          cp "$RUNNER_TEMP/diario.json" "$RUNNER_TEMP/rama/diario.json"
+          cd "$RUNNER_TEMP/rama"
+          git add diario.json
+          if git diff --cached --quiet; then echo "Diario sin cambios"; else
+            git commit -qm "Diario de pronósticos $(date -u +%FT%RZ)" && git push origin diario; fi
 
       - uses: actions/upload-pages-artifact@v3
         with:

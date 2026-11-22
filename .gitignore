@@ -8,3 +8,4 @@ apuestas.csv
 .env
 cache_jugadores.json
 !semilla/*.json
+diario.json

@@ -28,6 +28,7 @@ import requests
 from scipy.optimize import minimize
 from scipy.stats import poisson
 
+import diario
 import valores
 
 # ----------------------------------------------------------------------------- configuración
@@ -234,7 +235,7 @@ def _eventos_espn(codigo, desde, hasta):
                 continue
             st = ev["status"]["type"]
             fin = bool(st.get("completed"))
-            eventos[ev["id"]] = {"id": ev["id"], "fecha": d, "estado": st.get("state"),
+            eventos[ev["id"]] = {"id": ev["id"], "fecha": d, "estado": st.get("state"), "hora": ev.get("date"),
                                  "local": eq["home"]["team"]["displayName"], "visita": eq["away"]["team"]["displayName"],
                                  "id_l": str(eq["home"]["team"]["id"]), "id_v": str(eq["away"]["team"]["id"]),
                                  "gl": int(eq["home"]["score"]) if fin else None,
@@ -775,6 +776,7 @@ def eventos_copa(codigo):
             except (TypeError, ValueError):
                 continue
             eventos[ev["id"]] = {"id": ev["id"], "fecha": date.fromisoformat(ev["date"][:10]), "estado": st.get("state"),
+                                 "hora": ev.get("date"),
                                  "local": eq["home"]["team"]["displayName"], "visita": eq["away"]["team"]["displayName"],
                                  "id_l": str(eq["home"]["team"]["id"]), "id_v": str(eq["away"]["team"]["id"]),
                                  "gl": gl, "gv": gv, "odds": (c.get("odds") or [None])[0]}
@@ -1213,8 +1215,11 @@ def simula_proximos(log=print):
     squads = {k: v["jugadores"] for k, v in CACHE_V.get("plantillas", {}).items()}
     hoy = date.today()
     n_conf = n_ult = 0
+    por_id = {e["id"]: e for evs in list(EVENTOS_ESPN.values()) + [v[0] for k, v in _EUROPA.items() if k != "todos"] for e in evs}
     for p in PENDIENTES_SIM:
         for r, (ev_id, il, iv) in zip(p["filas"], p["ids"]):
+            if ev_id in por_id:
+                r["hora"], r["estado"] = por_id[ev_id].get("hora"), por_id[ev_id].get("estado")
             mult, info = [1.0, 1.0], {"beta": [round(beta[0], 3), round(beta[1], 3)]}
             confirmada = {}
             if ev_id and date.fromisoformat(r["fecha"]) <= hoy + timedelta(days=1):
@@ -1486,6 +1491,16 @@ def main():
                 r["sim"] = simula_partido(p["mod"], p["th"], r["local"], r["visita"], _rng(p["clave"], f"{r['fecha']}{r['local']}{r['visita']}"))
     valores.guarda_cache(CACHE_V)
     print(f"  listo en {(datetime.now() - t0).total_seconds():.0f} s")
+    try:
+        d = diario.carga()
+        n_cal = diario.califica(d, data["ligas"])
+        n_new, n_upd = diario.registra(d, data["ligas"], mezcla_mercado)
+        diario.guarda(d)
+        data["diario"] = diario.resumen(d)
+        print(f"Diario de pronósticos: {n_new} nuevos, {n_upd} actualizados antes de empezar, {n_cal} calificados; "
+              f"{data['diario']['total']['n']} partidos calificados en total")
+    except Exception as e:  # noqa: BLE001
+        print("  diario de pronósticos no disponible:", e)
     data["apuestas_archivo"] = lee_apuestas()
     escribe_pagina(data, args.salida)
 

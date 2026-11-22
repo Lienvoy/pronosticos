@@ -506,9 +506,32 @@ function temporada(el, L) {
       <p>No incluye fichajes, cambios de entrenador ni lesiones futuras${esCopa ? ", ni los desempates oficiales de la UEFA (se usan puntos, diferencia y goles)" : ""}.</p></details></div>`;
 }
 
+// diario: pronósticos guardados antes de cada partido y calificados con el resultado real
+function diarioHtml(comp) {
+  const Dd = D.diario;
+  if (!Dd) return "";
+  const m = Dd.por_comp[comp], ult = Dd.ultimos.filter(e => e.comp === comp).slice(0, 15);
+  const fila = (n, x) => x ? `<tr><td>${n} (${x.n})</td><td class="n">${x.logloss.toFixed(3)}</td><td class="n">${pct(x.acierto, 1)}</td></tr>` : "";
+  const res = e => e.gl > e.gv ? 0 : e.gl === e.gv ? 1 : 2;
+  return `<div class="panel" style="display:grid;gap:10px">
+    <h3>Pronósticos reales (desde ${fechaCorta(Dd.desde || "")})</h3>
+    <p class="small" style="margin:0">Cada pronóstico se guarda antes de que empiece el partido, con la alineación y las cuotas de ese momento, y se califica con el resultado. A diferencia de la prueba de arriba, aquí no hay forma de hacer trampa sin querer. ${Dd.pendientes} partidos esperan resultado.</p>
+    ${!m ? `<p class="small" style="margin:0">Todavía no hay partidos calificados en esta competición.</p>` : `
+    <table><thead><tr><th>Pronóstico</th><th class="n">Log-loss</th><th class="n">Acierta favorito</th></tr></thead><tbody>
+      ${fila("Modelo", m.modelo)}${fila("Combinado modelo + mercado", m.combinado)}${fila("Mercado (cuotas sin margen)", m.mercado)}
+    </tbody></table>
+    ${m.mercado ? `<p class="small" style="margin:0">En los ${m.mercado.n} partidos con cuotas, el log-loss del modelo fue ${m.modelo_con_cuotas.toFixed(3)} y el del mercado ${m.mercado.logloss.toFixed(3)}. ${m.mercado.n < 100 ? "Con menos de 100 partidos la diferencia todavía es sobre todo azar." : ""}</p>` : ""}
+    ${(m.favorito || []).length ? `<table><thead><tr><th>Favorito del modelo con…</th><th class="n">Partidos</th><th class="n">Decía</th><th class="n">Ganó</th></tr></thead><tbody>
+      ${m.favorito.map(f => `<tr><td>${f.rango}</td><td class="n">${f.n}</td><td class="n">${pct(f.pred)}</td><td class="n">${pct(f.obs)}</td></tr>`).join("")}</tbody></table>` : ""}
+    <table><thead><tr><th>Partido</th><th class="n">Res.</th><th class="n">Modelo 1·X·2</th><th class="n">Prob. de lo que pasó</th></tr></thead><tbody>
+      ${ult.map(e => `<tr><td>${fechaCorta(e.fecha)} ${esc(e.local)} – ${esc(e.visita)}</td><td class="n">${e.gl}-${e.gv}</td><td class="n">${e.p.map(x => pct(x)).join(" · ")}</td><td class="n">${pct(e.p[res(e)])}${e.pk ? ` <span class="small">(mercado ${pct(e.pk[res(e)])})</span>` : ""}</td></tr>`).join("")}
+    </tbody></table>`}
+  </div>`;
+}
+
 function fiab(el, B) {
   const b = B.backtest || {};
-  if (!b.n) { el.innerHTML = `<div class="panel empty"><p>Todavía no hay suficientes partidos para evaluar el modelo.</p></div>`; return }
+  if (!b.n) { el.innerHTML = `<div class="panel empty"><p>Todavía no hay suficientes partidos para evaluar el modelo.</p></div>${diarioHtml(liga)}`; return }
   const W = 320, H = 220, pad = 34, x = v => pad + v * (W - pad - 10), y = v => H - pad - v * (H - pad - 10);
   const cal = b.calibracion || [];
   const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:420px" role="img" aria-label="Calibración">
@@ -536,7 +559,8 @@ function fiab(el, B) {
       <p class="small" style="margin:0">El modelo mejora ${pct(mejora, 1)} sobre adivinar con frecuencias históricas. ${b.logloss_mercado ? (b.logloss < b.logloss_mercado ? "Además supera a las cuotas del mercado en esta muestra; trátalo con cautela, la muestra es corta." : "Las cuotas del mercado siguen siendo más precisas que el modelo, lo normal: el valor aparece solo en partidos puntuales y hay que filtrarlo con tu propio criterio.") : "Para compararlo contra el mercado hacen falta cuotas históricas (football-data.co.uk)."}</p>
     </div>
     <div class="panel" style="display:grid;gap:8px"><h3>Calibración</h3>${svg}
-      <p class="small" style="margin:0">Si el modelo dice 40%, el resultado debería ocurrir cerca de 40% de las veces. Los puntos sobre la diagonal punteada indican buena calibración; el tamaño refleja cuántos casos hay.</p></div></div>`;
+      <p class="small" style="margin:0">Si el modelo dice 40%, el resultado debería ocurrir cerca de 40% de las veces. Los puntos sobre la diagonal punteada indican buena calibración; el tamaño refleja cuántos casos hay.</p></div></div>
+    <div style="margin-top:14px">${diarioHtml(liga)}</div>`;
 }
 
 // ---------- en vivo: marcadores de ESPN consultados desde el navegador (ESPN permite CORS, funciona con file://)
