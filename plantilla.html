@@ -1,6 +1,6 @@
 <title>Tablero de Probabilidades</title>
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#1f6f4a">
+<meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-title" content="Pronósticos">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -8,29 +8,32 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: hoja de cuotas. Barra fija de competiciones y banca arriba, una sola columna de trabajo con pestañas por vista. */
+/* Tema claro siempre por defecto; el oscuro solo si se elige con el botón ☀/🌙 (data-theme="dark" en <html>).
+   --turf es el acento para texto y botones (contraste AA sobre blanco); --b1/--bx/--b2 y --fill son rellenos de barras
+   y gráficas, más claros, con texto oscuro encima (--bar-ink). */
 :root {
-  --bg: #f3f5f2; --panel: #ffffff; --ink: #18211d; --muted: #5d6b64; --line: #d9dfdb;
-  --turf: #1f6f4a; --turf-soft: #dcefe4; --amber: #a86208; --amber-soft: #fbecd3;
-  --red: #b3372f; --red-soft: #f7dfdc; --draw: #7a8580; --away: #2f5d8a;
+  --bg: #f6f8fb; --panel: #ffffff; --ink: #1f2a37; --muted: #667085; --line: #e4e7ec;
+  --turf: #127a4e; --turf-soft: #e3f5ec; --amber: #8a5a12; --amber-soft: #fdf3e1;
+  --red: #b42d33; --red-soft: #fdecec; --draw: #98a2b3; --away: #3b7cc4;
+  --b1: #34b77c; --bx: #c5ccd6; --b2: #5b9bd5; --fill: #22a06b; --bar-ink: #10231a;
+  --sombra: 0 1px 3px rgb(16 24 40 / .06), 0 1px 2px rgb(16 24 40 / .04);
   --f-display: "Barlow Condensed", "Arial Narrow", sans-serif;
   --f-body: "IBM Plex Sans", system-ui, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: light;
 }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #101613; --panel: #18201c; --ink: #e6ece8; --muted: #93a39a; --line: #2b3631;
-  --turf: #4fbf85; --turf-soft: #1c3428; --amber: #f0a43a; --amber-soft: #3a2a12;
-  --red: #ec7d72; --red-soft: #3c1e1b; --draw: #8f9a95; --away: #7aaee0; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #101613; --panel: #18201c; --ink: #e6ece8; --muted: #93a39a; --line: #2b3631;
   --turf: #4fbf85; --turf-soft: #1c3428; --amber: #f0a43a; --amber-soft: #3a2a12;
-  --red: #ec7d72; --red-soft: #3c1e1b; --draw: #8f9a95; --away: #7aaee0; color-scheme: dark }
+  --red: #ec7d72; --red-soft: #3c1e1b; --draw: #8f9a95; --away: #7aaee0;
+  --b1: #4fbf85; --bx: #8f9a95; --b2: #7aaee0; --fill: #4fbf85; --bar-ink: #0b1410; --sombra: none; color-scheme: dark }
 * { box-sizing: border-box }
 body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); margin: 0; padding: 0 0 56px }
 .wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 24px;
   padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)) }
 header { padding-block: 32px 0; display: grid; gap: 6px }
 /* barra superior fija */
-.topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--panel) 94%, transparent);
+.topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--panel) 96%, transparent); box-shadow: var(--sombra);
   backdrop-filter: blur(8px); border-bottom: 1px solid var(--line) }
 .topbar-in { position: relative; max-width: 1120px; margin: 0 auto; min-height: 56px; display: flex; align-items: center; gap: 12px;
   padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)) }
@@ -39,10 +42,13 @@ header { padding-block: 32px 0; display: grid; gap: 6px }
 .casa { display: grid; place-items: center; width: 38px; height: 38px; background: none; border: 1px solid var(--line); border-radius: 8px;
   color: var(--ink); cursor: pointer; flex: none }
 .casa:hover { background: var(--bg); color: var(--turf) }
+.tema { display: grid; place-items: center; width: 38px; height: 38px; flex: none; background: none; border: 1px solid var(--line);
+  border-radius: 8px; cursor: pointer; font-size: 17px; color: var(--ink) }
+.tema:hover { background: var(--bg) }
 .menu { list-style: none; margin: 0 0 0 auto; padding: 0; display: flex; align-items: center; gap: 2px }
 /* dashboard de Inicio */
 .dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 20px; align-items: start }
-.tarjeta-d { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 14px; min-width: 0 }
+.tarjeta-d { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--sombra); padding: 16px 18px; display: grid; gap: 14px; min-width: 0 }
 .tarjeta-d > h2 { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap }
 .scrollbox { max-height: 440px; overflow-y: auto; margin: 0 -18px; padding: 0 18px; overscroll-behavior: contain }
 .liga-h { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; padding: 8px 0 6px; background: var(--panel);
@@ -63,9 +69,9 @@ header { padding-block: 32px 0; display: grid; gap: 6px }
 .pt .bar { height: 6px; font-size: 0 }
 .hb { display: grid; grid-template-columns: minmax(84px, 36%) minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; font-size: 13px }
 .hb .n1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .hb .n1 small { color: var(--muted) }
-.hb .tr { height: 12px } .hb .tr > i { display: block; height: 100%; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--turf) }
+.hb .tr { height: 12px } .hb .tr > i { display: block; height: 100%; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--fill) }
 .hb .tr.doble { height: 16px; display: grid; gap: 2px } .hb .tr.doble > i { height: 7px }
-.hb .tr > i.b { background: var(--away) } .hb .tr > i.g { background: var(--draw) }
+.hb .tr > i.b { background: var(--b2) } .hb .tr > i.g { background: var(--bx) }
 .hb .v { font: 12.5px var(--f-mono); color: var(--ink); text-align: right }
 .leyenda { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted) }
 .leyenda i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px }
@@ -123,7 +129,7 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--turf) }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted) }
 .warn { background: var(--amber-soft); color: var(--ink); border-left: 3px solid var(--amber); padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 0; max-width: 90ch }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; min-width: 0 }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; box-shadow: var(--sombra) }
 .grid2 { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px }
 .scroll { overflow-x: auto }
 table { border-collapse: collapse; width: 100%; font-size: 13px }
@@ -141,8 +147,8 @@ tr:last-child td { border-bottom: 0 }
 .fx .teams b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .fx .xg { font: 12px var(--f-mono); color: var(--muted) }
 .bar { display: flex; height: 22px; border-radius: 3px; overflow: hidden; font: 500 11px/22px var(--f-mono) }
-.bar > div { color: #fff; text-align: center; min-width: 0; overflow: hidden }
-.b1 { background: var(--turf) } .bx { background: var(--draw) } .b2 { background: var(--away) }
+.bar > div { color: var(--bar-ink); text-align: center; min-width: 0; overflow: hidden }
+.b1 { background: var(--b1) } .bx { background: var(--bx) } .b2 { background: var(--b2) }
 .odds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px }
 .odds input { width: 100%; text-align: center; padding: 3px 4px; font-size: 13px }
 .odds .ev { font: 11px var(--f-mono); text-align: center; color: var(--muted) }
@@ -234,6 +240,7 @@ footer { font-size: 12.5px; color: var(--muted); max-width: 90ch }
             <p class="note">Monto sugerido en Próximos = banca × fracción Kelly × (p·cuota − 1)/(cuota − 1), con tope por apuesta. Cuotas decimales (2.10, no +110).</p>
           </div></div></li>
     </ul>
+    <button class="tema" id="tema" aria-label="Cambiar a modo oscuro" title="Cambiar a modo oscuro">🌙</button>
   </div>
 </nav>
 <div class="wrap">
@@ -256,6 +263,16 @@ const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
 const f2 = x => (x == null || isNaN(x)) ? "–" : Number(x).toFixed(2);
 const store = { get(k, d) { try { const v = localStorage.getItem("prono." + k); return v == null ? d : JSON.parse(v) } catch { return d } },
                 set(k, v) { try { localStorage.setItem("prono." + k, JSON.stringify(v)) } catch {} } };
+// tema: claro por defecto; el botón ☀/🌙 cambia a oscuro y se recuerda en este navegador
+function aplicaTema(t) {
+  document.documentElement.dataset.theme = t;
+  const b = $("#tema"), osc = t === "dark";
+  b.textContent = osc ? "☀" : "🌙";
+  b.setAttribute("aria-label", osc ? "Cambiar a modo claro" : "Cambiar a modo oscuro"); b.title = b.getAttribute("aria-label");
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = osc ? "#18201c" : "#ffffff";
+}
+aplicaTema(store.get("tema", "light"));
+$("#tema").onclick = () => { const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; store.set("tema", t); aplicaTema(t) };
 
 // ---------- modelo
 function pois(k, l) { let p = Math.exp(-l); for (let i = 1; i <= k; i++) p *= l / i; return p }
@@ -853,18 +870,18 @@ function inicioVista(v) {
       ${barrasH(claros.map(c => ({ n: c.sel === "Empate" ? `Empate: ${c.r.local}–${c.r.visita}` : c.sel, sub: `${c.n} · ${fechaCorta(c.r.fecha)} · cuota justa ${f2(1 / c.p)}`, v: c.p,
         t: `${c.r.local} vs ${c.r.visita}: ${c.sel} ${pct(c.p, 1)}` })), x => pct(x), 1)}
       <h3>¿Qué tan fiable es? (log-loss, menor es mejor)</h3>
-      <div class="leyenda"><span><i style="background:var(--turf)"></i>Modelo</span><span><i style="background:var(--draw)"></i>Mercado</span></div>
+      <div class="leyenda"><span><i style="background:var(--fill)"></i>Modelo</span><span><i style="background:var(--bx)"></i>Mercado</span></div>
       ${barrasDobles(fia.map(x => ({ n: x.n, v: [x.b.logloss, x.b.logloss_mercado], t: `${x.n}: modelo ${x.b.logloss.toFixed(3)}, mercado ${x.b.logloss_mercado.toFixed(3)}` })), x => x.toFixed(3), 1.2, ["", "g"])}
       <h3>Calibración: lo que decía el modelo vs lo que pasó (%)</h3>${curva}
       <p class="small" style="margin:0">Si los puntos siguen la diagonal, cuando el modelo dice 40% pasa cerca de 40% de las veces. Todas las ligas, prueba fuera de muestra.</p></section>
     <section class="tarjeta-d"><h2>Estadísticas de las ligas</h2>
       <h3>Goles por partido</h3>${barrasH(est.map(e => ({ n: e.n, v: e.goles, t: `${e.n}: ${e.goles.toFixed(2)} goles por partido en ${e.pj} partidos` })), x => x.toFixed(2))}
       <h3>Gana local · empate · gana visita</h3>
-      <div class="leyenda"><span><i style="background:var(--turf)"></i>Local</span><span><i style="background:var(--draw)"></i>Empate</span><span><i style="background:var(--away)"></i>Visita</span></div>
+      <div class="leyenda"><span><i style="background:var(--b1)"></i>Local</span><span><i style="background:var(--bx)"></i>Empate</span><span><i style="background:var(--b2)"></i>Visita</span></div>
       <div class="hb">${est.map(e => `<div class="n1">${esc(e.n)}</div><div class="bar" style="height:14px;font-size:0" title="${esc(e.n)}: local ${pct(e.l)}, empate ${pct(e.e)}, visita ${pct(e.vi)}">
         <div class="b1" style="width:${100 * e.l}%"></div><div class="bx" style="width:${100 * e.e}%"></div><div class="b2" style="width:${100 * e.vi}%"></div></div><div class="v">${pct(e.l)}·${pct(e.e)}·${pct(e.vi)}</div>`).join("")}</div>
       <h3>Más de 2.5 goles y ambos anotan</h3>
-      <div class="leyenda"><span><i style="background:var(--turf)"></i>Más de 2.5</span><span><i style="background:var(--away)"></i>Ambos anotan</span></div>
+      <div class="leyenda"><span><i style="background:var(--fill)"></i>Más de 2.5</span><span><i style="background:var(--b2)"></i>Ambos anotan</span></div>
       ${barrasDobles(est.map(e => ({ n: e.n, v: [e.o25, e.btts], t: `${e.n}: más de 2.5 ${pct(e.o25)}, ambos anotan ${pct(e.btts)}` })), x => pct(x), 1)}
       <h3>Top 3 de cada liga</h3>
       <div class="mini">${ligas.map(([k, n]) => `<div><b>${esc(n)}</b>${D.ligas[k].tabla.slice(0, 3).map((r, i) => `<div><span>${i + 1}. ${esc(r.equipo)}</span>${r.pts}</div>`).join("")}</div>`).join("")}</div></section>
