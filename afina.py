@@ -37,12 +37,15 @@ def datos_liga(clave):
     hueco = 17 if cod_fd == "MEX" else 30
     inicios = [fechas[0]] + [fechas[i + 1] for i in range(len(fechas) - 1) if (fechas[i + 1] - fechas[i]).days > hueco]
     xg = A.xg_aproximado(jug)
-    return (xg[0] if xg else jug), inicios, xg is not None
+    if xg:
+        jug = xg[0]
+    mk = A.mercado_implicito(jug)
+    return (mk if mk is not None else jug), inicios, (xg is not None, mk is not None)
 
 
 def evalua(jug, inicios, con_xg, xi, ridge):
     """Log-loss de la temporada pasada y de la actual con esos parámetros."""
-    preds, _, w, _ = A.backtest(jug, inicios, con_xg=con_xg, xi=xi, ridge=ridge)
+    preds, _, w, _ = A.backtest(jug, inicios, con_xg=con_xg[0], con_mk=con_xg[1], xi=xi, ridge=ridge)
     corte = inicios[-1].isoformat()
     out = {}
     for nombre, sel in (("pasada", [p for p in preds if p["fecha"] < corte]), ("actual", [p for p in preds if p["fecha"] >= corte])):

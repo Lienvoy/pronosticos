@@ -360,6 +360,34 @@ def xg_aproximado(jug):
     return out, [round(float(c), 3) for c in coef]
 
 
+_TABLA_MERCADO = []
+
+
+def mercado_implicito(jug):
+    """Goles esperados que implican las cuotas (de cierre, cuando las hay) de cada partido jugado: se buscan λ y μ
+    cuyas probabilidades Dixon-Coles de local y visita coinciden con las de las cuotas sin margen. Así la historia del
+    mercado (que ya incorpora lesiones, rotaciones y forma) sirve como una tercera fuente para estimar las fuerzas."""
+    c = jug[["c1", "cx", "c2"]].apply(pd.to_numeric, errors="coerce")
+    ok = (c > 1).all(axis=1) & jug["gl"].notna()
+    if ok.mean() < 0.5:
+        return None
+    if not _TABLA_MERCADO:
+        from scipy.spatial import cKDTree
+        g = np.arange(0.15, 4.0001, 0.025)
+        L, M = (x.ravel() for x in np.meshgrid(g, g, indexing="ij"))
+        Mx = _matrices_dc(L, M, np.full(L.shape, -0.05))
+        tri = np.tril(np.ones((MAX_GOLES + 1,) * 2, bool), -1)
+        _TABLA_MERCADO.extend([cKDTree(np.c_[Mx[:, tri].sum(1), Mx[:, tri.T].sum(1)]), L, M])
+    arbol, L, M = _TABLA_MERCADO
+    imp = 1 / c[ok].to_numpy(float)
+    imp /= imp.sum(1, keepdims=True)
+    _, idx = arbol.query(imp[:, [0, 2]])
+    out = jug.copy()
+    out["mk_l"], out["mk_v"] = np.nan, np.nan
+    out.loc[ok, "mk_l"], out.loc[ok, "mk_v"] = L[idx], M[idx]
+    return out
+
+
 def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles", xi=None, ridge=None):
     """Ajusta el modelo con los partidos anteriores a `hasta`, ponderados por antigüedad.
     Los equipos sin partidos antes del inicio de la temporada en curso (ascendidos) usan un prior más débil.
@@ -373,14 +401,18 @@ def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles", xi=
     n = len(equipos)
     hi = d["local"].map(idx).to_numpy()
     ai = d["visita"].map(idx).to_numpy()
+    con_dato = np.ones(len(d), bool)
     if objetivo == "xg":
         x, y = d["xg_l"].to_numpy(float), d["xg_v"].to_numpy(float)
+    elif objetivo == "mercado":              # goles esperados implícitos en las cuotas; partidos sin cuotas no cuentan
+        con_dato = d["mk_l"].notna().to_numpy()
+        x, y = d["mk_l"].fillna(0).to_numpy(float), d["mk_v"].fillna(0).to_numpy(float)
     else:
         x, y = d["gl"].to_numpy(int), d["gv"].to_numpy(int)
     dias = np.array([(hasta - f).days for f in d["fecha"]])
     xi = XI if xi is None else xi            # velocidad de olvido y suavizado: se pueden afinar por liga
     ridge = RIDGE if ridge is None else ridge
-    w = np.exp(-xi * dias)
+    w = np.exp(-xi * dias) * con_dato
     pa = np.array([PRIOR_ASCENDIDO[0] if e in equipos_nuevos else 0 for e in equipos])
     pd_ = np.array([PRIOR_ASCENDIDO[1] if e in equipos_nuevos else 0 for e in equipos])
     lgx = np.array([math.lgamma(v + 1) for v in x])
@@ -394,8 +426,8 @@ def ajusta_dixon_coles(jug, hasta, inicios, con_cov=False, objetivo="goles", xi=
         ll = x * np.log(l) - l - lgx + y * np.log(m) - m - lgy + np.log(_tau(x, y, l, m, rho))
         return -(w * ll).sum() + ridge * (((a - pa) ** 2).sum() + ((df_ - pd_) ** 2).sum())
 
-    p0 = np.concatenate([[0.2, 0.25, 0.0 if objetivo == "xg" else -0.05], pa, pd_])
-    bounds = [(None, None), (-1, 1), (0, 0) if objetivo == "xg" else (-0.3, 0.3)] + [(-3, 3)] * (2 * n)
+    p0 = np.concatenate([[0.2, 0.25, 0.0 if objetivo != "goles" else -0.05], pa, pd_])
+    bounds = [(None, None), (-1, 1), (0, 0) if objetivo != "goles" else (-0.3, 0.3)] + [(-3, 3)] * (2 * n)
     r = minimize(nll, p0, method="L-BFGS-B", bounds=bounds)
     p = r.x
     out = {"mu": float(p[0]), "home": float(p[1]), "rho": float(p[2]), "p": p, "orden": equipos,
@@ -504,28 +536,51 @@ def prob_1x2(mod, local, visita):
 
 
 # ----------------------------------------------------------------------------- backtest
-PESOS_XG = [1.0, 0.75, 0.5, 0.25, 0.0]     # peso del modelo de goles (el resto, del de tiros)
+def combina_pesos(mg, mx, mm, pesos):
+    """Fuerzas = wg·goles + wx·tiros + wm·cuotas pasadas, en escala logarítmica; pesos = (wg, wx, wm).
+    ρ sale del modelo de goles y la incertidumbre (cov) también."""
+    wg, wx, wm = pesos
+    if wg >= 1:
+        return mg
+    p = wg * mg["p"] + (wx * mx["p"] if wx else 0) + (wm * mm["p"] if wm else 0)
+    p[2] = mg["p"][2]
+    eq, n = mg["orden"], len(mg["orden"])
+    out = {**mg, "mu": float(p[0]), "home": float(p[1]), "p": p,
+           "ataque": {e: float(p[3 + i]) for i, e in enumerate(eq)},
+           "defensa": {e: float(p[3 + n + i]) for i, e in enumerate(eq)}}
+    if "theta" in mg:
+        out["theta"] = p.copy()
+    return out
 
 
-def backtest(jug, inicios, con_xg=False, xi=None, ridge=None):
+def rejilla_pesos(con_xg, con_mk):
+    """Combinaciones (goles, tiros, mercado) a probar, en pasos de 0.25 que suman 1."""
+    pasos = [0.0, 0.25, 0.5, 0.75, 1.0]
+    return [(round(1 - wx - wm, 2), wx, wm) for wx in (pasos if con_xg else [0.0]) for wm in (pasos if con_mk else [0.0])
+            if wx + wm <= 1 + 1e-9]
+
+
+def backtest(jug, inicios, con_xg=False, xi=None, ridge=None, con_mk=False):
     """Reajusta cada semana con datos previos y predice la semana siguiente (fuera de muestra).
-    Cubre la temporada pasada completa y lo que va de la actual. Con con_xg, cada semana ajusta también el modelo de
-    tiros y elige el peso de la combinación que mejor pronostica. Devuelve (preds, métricas, peso, log-loss por peso)."""
+    Cubre la temporada pasada completa y lo que va de la actual. Cada semana ajusta el modelo de goles y, si hay datos,
+    el de tiros (con_xg) y el de cuotas pasadas (con_mk), y elige los pesos (goles, tiros, mercado) que mejor
+    pronostican. Devuelve (preds, métricas, pesos, log-loss por combinación de pesos)."""
     if len(inicios) < 2:
-        return [], {}, 1.0, {}
+        return [], {}, (1.0, 0.0, 0.0), {}
     desde = inicios[-2]
     act = jug[jug["fecha"] >= desde].sort_values("fecha")
     corte = desde + timedelta(days=21)   # dejamos 3 semanas de arranque
     fin = act["fecha"].iloc[-1]
-    pesos = PESOS_XG if con_xg else [1.0]
+    pesos = rejilla_pesos(con_xg, con_mk)
     preds = {w: [] for w in pesos}
     while corte <= fin:
         sem = act[(act["fecha"] >= corte) & (act["fecha"] < corte + timedelta(days=7))]
         if len(sem):
             mg = ajusta_dixon_coles(jug, corte, inicios, xi=xi, ridge=ridge)
             mx = ajusta_dixon_coles(jug, corte, inicios, objetivo="xg", xi=xi, ridge=ridge) if con_xg else None
+            mm = ajusta_dixon_coles(jug, corte, inicios, objetivo="mercado", xi=xi, ridge=ridge) if con_mk else None
             for w in pesos:
-                mod = combina_modelos(mg, mx, w)
+                mod = combina_pesos(mg, mx, mm, w)
                 for r in sem.itertuples():
                     p1, px, p2, M = prob_1x2(mod, r.local, r.visita)
                     pover = float(M[np.add.outer(np.arange(MAX_GOLES + 1), np.arange(MAX_GOLES + 1)) > 2].sum())
@@ -534,12 +589,14 @@ def backtest(jug, inicios, con_xg=False, xi=None, ridge=None):
                                      "pover": round(pover, 4),
                                      "c": [None if pd.isna(v) else float(v) for v in (r.c1, r.cx, r.c2)]})
         corte += timedelta(days=7)
-    if not preds[1.0]:
-        return [], {}, 1.0, {}
-    res = np.array([0 if p["gl"] > p["gv"] else 1 if p["gl"] == p["gv"] else 2 for p in preds[1.0]])
+    solo_goles = (1.0, 0.0, 0.0)
+    if not preds[solo_goles]:
+        return [], {}, solo_goles, {}
+    res = np.array([0 if p["gl"] > p["gv"] else 1 if p["gl"] == p["gv"] else 2 for p in preds[solo_goles]])
     ll = {w: _logloss([p["p"] for p in preds[w]], res) for w in pesos}
     w = min(ll, key=ll.get)
-    return preds[w], metricas(preds[w], jug[jug["fecha"] < desde]), w, {str(k): round(v, 4) for k, v in ll.items()}
+    return (preds[w], metricas(preds[w], jug[jug["fecha"] < desde]), w,
+            {"/".join(f"{x:g}" for x in k): round(v, 4) for k, v in ll.items()})
 
 
 def metricas(preds, hist):
@@ -1351,19 +1408,25 @@ def procesa_liga(clave, fuente):
     coef_xg = None
     if xg:
         jug, coef_xg = xg
+    mk = mercado_implicito(jug) if os.environ.get("SIN_CUOTAS_PASADAS") != "1" else None
+    if mk is not None:
+        jug = mk
     prm = PARAMETROS.get(clave, {})          # afinados con afina.py; si no hay, los generales
-    preds, met, w_goles, ll_pesos = backtest(jug, inicios, con_xg=xg is not None, xi=prm.get("xi"), ridge=prm.get("ridge"))
-    mod = ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, con_cov=True, xi=prm.get("xi"), ridge=prm.get("ridge"))
-    if w_goles < 1:
-        mod = combina_modelos(mod, ajusta_dixon_coles(jug, ultimo + timedelta(days=1), inicios, objetivo="xg",
-                                                      xi=prm.get("xi"), ridge=prm.get("ridge")), w_goles)
+    kw = {"xi": prm.get("xi"), "ridge": prm.get("ridge")}
+    preds, met, pesos, ll_pesos = backtest(jug, inicios, con_xg=xg is not None, con_mk=mk is not None, **kw)
+    hasta = ultimo + timedelta(days=1)
+    mod = ajusta_dixon_coles(jug, hasta, inicios, con_cov=True, **kw)
+    mod = combina_pesos(mod, ajusta_dixon_coles(jug, hasta, inicios, objetivo="xg", **kw) if pesos[1] else None,
+                        ajusta_dixon_coles(jug, hasta, inicios, objetivo="mercado", **kw) if pesos[2] else None, pesos)
     MODELOS[clave] = mod
     alpha, info_mezcla = elige_mezcla(preds)
+    w_goles = pesos[0]
     if met:
-        met["xg"] = {"coef": coef_xg, "peso_goles": w_goles, "logloss_por_peso": ll_pesos}
+        met["xg"] = {"coef": coef_xg, "peso_goles": w_goles, "pesos": list(pesos), "logloss_por_peso": ll_pesos}
         met["mezcla"] = info_mezcla
         print(f"  Tiros: {'xG = ' + str(coef_xg[0]) + '·a puerta + ' + str(coef_xg[1]) + '·desviados; ' if coef_xg else 'sin datos de tiros; '}"
-              f"peso goles {w_goles} (log-loss por peso {ll_pesos}); mezcla con mercado α={alpha} {info_mezcla}")
+              f"pesos goles/tiros/cuotas pasadas {pesos}, log-loss {met['logloss']:.4f} (solo goles {ll_pesos.get('1/0/0')}); "
+              f"mezcla con mercado α={alpha} {info_mezcla}")
 
     proximos = fut[fut["fecha"] >= hoy].sort_values("fecha").head(40)
     t0 = datetime.now()

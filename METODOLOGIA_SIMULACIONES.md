@@ -29,6 +29,26 @@ Los goles tienen mucho azar; los tiros miden mejor cuántas ocasiones genera y c
 - Las fuerzas finales son w · (modelo de goles) + (1 − w) · (modelo de tiros) en escala logarítmica. El peso w ∈ {1, 0.75, 0.5, 0.25, 0} se elige en la prueba fuera de muestra semanal: es el que da menor log-loss.
 - La incertidumbre para Montecarlo se toma del modelo de goles.
 
+### 2.1 bis Fuerza según las cuotas pasadas ("ratings de mercado")
+
+Las cuotas de cierre de un partido ya jugado resumen lo que el mercado sabía antes de que empezara: lesiones, rotaciones, forma, motivación.
+
+- Para cada partido jugado con cuotas se buscan los goles esperados (λ, μ) cuyas probabilidades Dixon-Coles de local y visita coinciden con las de las cuotas sin margen. Se usa una tabla precalculada y un árbol de vecinos cercanos.
+- Con esos goles esperados como variable a explicar se ajusta un tercer modelo con las mismas fuerzas. Los partidos sin cuotas no cuentan en ese ajuste.
+- Las fuerzas finales son wg · goles + wx · tiros + wm · cuotas pasadas. Los pesos se eligen en pasos de 0.25 con la prueba fuera de muestra semanal.
+- No se usa la cuota del partido que se pronostica: solo las de partidos anteriores a la fecha de corte.
+- Resultado (log-loss fuera de muestra, antes → después; entre paréntesis, el mercado):
+
+| Liga | Antes | Después | Mercado |
+|---|---|---|---|
+| LaLiga | 0.972 | 0.956 | 0.950 |
+| Bundesliga | 0.977 | 0.960 | 0.954 |
+| Liga MX | 1.070 | 1.052 | 1.030 |
+| Serie A | 0.972 | 0.964 | 0.955 |
+| Ligue 1 | 0.993 | 0.988 | 0.982 |
+| Eredivisie | 1.006 | 1.001 | 0.996 |
+| Premier | 1.025 | 1.021 | 1.019 |
+
 ### 2.2 Combinación con el mercado
 
 Las cuotas de cierre resumen información que el modelo no ve. La probabilidad **combinada** es p ∝ p_modelo^α · p_mercado^(1−α) (combinación logarítmica), con el mercado sin margen.
